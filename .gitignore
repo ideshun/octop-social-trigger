@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+*.db
+*.db-*
+.DS_Store
+.ruff_cache/
+.pytest_cache/
+.venv/
+dist/octop-social-trigger-host-patches/

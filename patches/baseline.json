@@ -1,0 +1,15 @@
+{
+  "gateway": {
+    "src/octop_gateway/channel.py": "9b3d4ef85c9f44c894ba7300a2207ad6ec2f08d6bf8583789035ae70845affec",
+    "src/octop_gateway/group_context.py": "f19ee282ae64d52fa509b2706765c5a52600aa6d6254aedeb0227bd20e126723",
+    "src/octop_gateway/manager.py": "29a06e833af05221f8e66362b9205442fcd46c9c4b3b098ddd2332db8d34d65b",
+    "src/octop_gateway/channels/qq/channel.py": "50fa90a5a4ace2389c7f12d71ffba10c10ad21d17d93f91317f8df2aef9d0432"
+  },
+  "harness": {
+    "src/octop_harness/plugins/context.py": "99f685e0ba4d48b627ed77e5a8e36b5601c585f8b87d3f10f4a4ff414dfba607",
+    "src/octop_harness/plugins/registry.py": "0d0290b8da2878eecf022e1e28ab3fbf23b8cbc02da409ad120d924d0609e577"
+  },
+  "octop": {
+    "src/octop/infra/gateway/gateway.py": "e2a244504c766ad085ef578e83e0d0f3d0292dd2e4399b3567b6558816cdcbb5"
+  }
+}

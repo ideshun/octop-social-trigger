@@ -1,0 +1,16 @@
+{
+  "platform": "qq",
+  "channelInstanceId": "example-channel",
+  "groupId": "example-group",
+  "agentId": "example-agent",
+  "messageId": "example-message",
+  "senderId": "example-sender",
+  "text": "这条消息值得讨论吗？",
+  "receivedAt": 1793203200,
+  "isMentioned": false,
+  "isReplyToBot": false,
+  "isBotMessage": false,
+  "isCommand": false,
+  "isGroup": true,
+  "visibilityGranted": "all"
+}

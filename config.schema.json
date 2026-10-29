@@ -1,0 +1,240 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "$defs": {
+    "policy": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "default": "smart",
+          "type": "string",
+          "enum": [
+            "always",
+            "disabled",
+            "mention_only",
+            "probability",
+            "smart"
+          ]
+        },
+        "visibilityRequired": {
+          "default": "all",
+          "type": "string",
+          "const": "all"
+        },
+        "replyProbability": {
+          "default": 0.25,
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "smartScoreThreshold": {
+          "default": 0.7,
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "cooldownSeconds": {
+          "default": 180,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 86400
+        },
+        "maxPassiveRepliesPerHour": {
+          "default": 8,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "maxPassiveRepliesPerDay": {
+          "default": 30,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000
+        },
+        "maxConsecutiveReplies": {
+          "default": 2,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "maxBotReplyRatio": {
+          "default": 0.5,
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "randomDelayMinMs": {
+          "default": 1000,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 300000
+        },
+        "randomDelayMaxMs": {
+          "default": 5000,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 300000
+        },
+        "debounceMs": {
+          "default": 1500,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 60000
+        },
+        "contextMessages": {
+          "default": 20,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "contextTtlSeconds": {
+          "default": 600,
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 86400
+        },
+        "mentionBypassCooldown": {
+          "default": true,
+          "type": "boolean"
+        },
+        "quietHours": {
+          "default": {
+            "enabled": false,
+            "start": "23:00",
+            "end": "08:00"
+          },
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "start": {
+              "type": "string",
+              "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
+            },
+            "end": {
+              "type": "string",
+              "pattern": "^(?:[01][0-9]|2[0-3]):[0-5][0-9]$"
+            }
+          }
+        },
+        "classifier": {
+          "default": {
+            "enabled": false,
+            "timeoutMs": 1800,
+            "maxCallsPerDay": 100
+          },
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "const": false
+            },
+            "timeoutMs": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            },
+            "maxCallsPerDay": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 100000
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "default": false
+    },
+    "dryRun": {
+      "type": "boolean",
+      "default": true
+    },
+    "timezone": {
+      "type": "string",
+      "default": "Asia/Shanghai"
+    },
+    "defaults": {
+      "$ref": "#/$defs/policy"
+    },
+    "channelTypes": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/policy"
+      }
+    },
+    "channelInstances": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/policy"
+      }
+    },
+    "groups": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "$ref": "#/$defs/policy"
+        }
+      }
+    },
+    "groupAgents": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/policy"
+          }
+        }
+      }
+    },
+    "allowGroups": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "prefixItems": [
+          {
+            "type": "string",
+            "minLength": 1
+          },
+          {
+            "type": "string",
+            "minLength": 1
+          }
+        ],
+        "items": false,
+        "minItems": 2,
+        "maxItems": 2
+      }
+    },
+    "denyGroups": {
+      "type": "array",
+      "items": {
+        "type": "array",
+        "prefixItems": [
+          {
+            "type": "string",
+            "minLength": 1
+          },
+          {
+            "type": "string",
+            "minLength": 1
+          }
+        ],
+        "items": false,
+        "minItems": 2,
+        "maxItems": 2
+      }
+    }
+  }
+}

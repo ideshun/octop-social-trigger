@@ -1,0 +1,7 @@
+id: octop-social-trigger
+version: 0.1.0
+name: QQ 群聊自动参与
+description: 根据聊天内容和回复频率设置，选择性回复 QQ 群普通消息，避免每条消息都回复。
+icon: "🎛️"
+kind: hook
+entry: main.py

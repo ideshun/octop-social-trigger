@@ -1,0 +1,38 @@
+{
+  "enabled": false,
+  "dryRun": true,
+  "timezone": "Asia/Shanghai",
+  "defaults": {
+    "mode": "smart",
+    "visibilityRequired": "all",
+    "replyProbability": 0.25,
+    "smartScoreThreshold": 0.7,
+    "cooldownSeconds": 180,
+    "maxPassiveRepliesPerHour": 8,
+    "maxPassiveRepliesPerDay": 30,
+    "maxConsecutiveReplies": 2,
+    "randomDelayMinMs": 1000,
+    "randomDelayMaxMs": 5000,
+    "debounceMs": 1500,
+    "contextMessages": 20,
+    "contextTtlSeconds": 600,
+    "mentionBypassCooldown": true,
+    "quietHours": {
+      "enabled": false,
+      "start": "23:00",
+      "end": "08:00"
+    },
+    "classifier": {
+      "enabled": false,
+      "timeoutMs": 1800,
+      "maxCallsPerDay": 100
+    },
+    "maxBotReplyRatio": 0.5
+  },
+  "channelTypes": {},
+  "channelInstances": {},
+  "groups": {},
+  "groupAgents": {},
+  "allowGroups": [],
+  "denyGroups": []
+}

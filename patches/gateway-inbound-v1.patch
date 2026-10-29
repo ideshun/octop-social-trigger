@@ -1,0 +1,276 @@
+diff --git a/src/octop_gateway/channel.py b/src/octop_gateway/channel.py
+index d373cad..835d504 100644
+--- a/src/octop_gateway/channel.py
++++ b/src/octop_gateway/channel.py
+@@ -17,6 +17,7 @@ import re
+ import time
+ from abc import ABC, abstractmethod
+ from collections.abc import AsyncIterator, Callable
++from contextvars import ContextVar
+ from dataclasses import dataclass, field, fields
+ from typing import Any, Self
+ from urllib.parse import urlparse
+@@ -53,6 +54,16 @@ logger = logging.getLogger(__name__)
+ MessageProcessor = Callable[[InboundMessage], AsyncIterator[MessageEvent]]
+ 
+ 
++@dataclass
++class InboundReceipt:
++    attempted: bool = False
++    delivered: bool = False
++
++
++_inbound_receipt: ContextVar[InboundReceipt | None] = ContextVar("inbound_receipt", default=None)
++
++
++
+ # ---------------------------------------------------------------------------
+ # ChannelConfig — base class for all platform-specific Config dataclasses
+ # ---------------------------------------------------------------------------
+@@ -350,17 +361,32 @@ class BaseChannel(ABC):
+         (``subject.subject_id`` + ``subject.metadata``).
+         """
+         await self._acquire_rate_slot()
++        receipt = _inbound_receipt.get()
++        if receipt is not None:
++            receipt.attempted = True
+         await self._send_text(subject, text)
++        if receipt is not None:
++            receipt.delivered = True
+ 
+     async def reply_content(self, subject: ChannelSubject, parts: list[ContentPart]) -> None:
+         """Reply with rich content (text + media)."""
+         await self._acquire_rate_slot()
++        receipt = _inbound_receipt.get()
++        if receipt is not None:
++            receipt.attempted = True
+         await self._send_content(subject, parts)
++        if receipt is not None:
++            receipt.delivered = True
+ 
+     async def reply_media(self, subject: ChannelSubject, media: ContentPart) -> None:
+         """Reply with a single media item."""
+         await self._acquire_rate_slot()
++        receipt = _inbound_receipt.get()
++        if receipt is not None:
++            receipt.attempted = True
+         await self._send_media(subject, media)
++        if receipt is not None:
++            receipt.delivered = True
+ 
+     # ------- Push (bot-initiated) -------------------------------------------
+ 
+@@ -724,7 +750,7 @@ class BaseChannel(ABC):
+     # Message processing pipeline
+     # =========================================================================
+ 
+-    async def handle_inbound(self, raw_payload: object) -> None:
++    async def handle_inbound(self, raw_payload: object, *, force_activation: bool = False, receipt: InboundReceipt | None = None) -> InboundReceipt:
+         """Run the shared inbound template around platform-specific delivery.
+ 
+         1. Parse raw payload → InboundMessage
+@@ -733,12 +759,17 @@ class BaseChannel(ABC):
+         4. Process and deliver events using the channel's output strategy
+         5. Finalize the group-context lifecycle after a successful reply
+         """
+-        prepared = await self._prepare_inbound(raw_payload)
+-        if prepared is None:
+-            return
+-        message, subject = prepared
+-        processing_succeeded = await self._process_inbound(message, subject)
+-        self._finalize_inbound(message, processing_succeeded=processing_succeeded)
++        receipt = receipt if receipt is not None else InboundReceipt()
++        token = _inbound_receipt.set(receipt)
++        try:
++            prepared = await self._prepare_inbound(raw_payload, force_activation=force_activation)
++            if prepared is not None:
++                message, subject = prepared
++                processing_succeeded = await self._process_inbound(message, subject)
++                self._finalize_inbound(message, processing_succeeded=processing_succeeded)
++            return receipt
++        finally:
++            _inbound_receipt.reset(token)
+ 
+     async def _preprocess_inbound(self, message: InboundMessage) -> None:
+         """Normalize platform-specific content before shared policy runs.
+@@ -752,6 +783,8 @@ class BaseChannel(ABC):
+     async def _prepare_inbound(
+         self,
+         raw_payload: object,
++        *,
++        force_activation: bool = False,
+     ) -> tuple[InboundMessage, ChannelSubject] | None:
+         """Prepare one message for any channel-specific output strategy."""
+         message = self.parse_inbound(raw_payload)
+@@ -759,6 +792,11 @@ class BaseChannel(ABC):
+         if not self._group_context.accepts(message):
+             return None
+ 
++        if force_activation:
++            policy = self._group_context.policy_for(message)
++            if not policy.enabled or policy.visibility != "all":
++                return None
++
+         # GroupContextManager owns short-lived passive chatter and activation
+         # policy.  A non-triggering group message is intentionally observed but
+         # never enters the agent's durable conversation thread.
+@@ -769,7 +807,7 @@ class BaseChannel(ABC):
+         if self._media_backend and self._group_context.should_persist_media(message):
+             await self._persist_media(message)
+ 
+-        prepared = self._group_context.prepare(message)
++        prepared = self._group_context.prepare(message, force_activation=force_activation)
+         if prepared is None:
+             return None
+         message = prepared
+diff --git a/src/octop_gateway/channels/qq/channel.py b/src/octop_gateway/channels/qq/channel.py
+index 7de668b..0b11373 100644
+--- a/src/octop_gateway/channels/qq/channel.py
++++ b/src/octop_gateway/channels/qq/channel.py
+@@ -207,6 +207,7 @@ class QQConfig(ChannelConfig):
+     sandbox: bool = False
+     intents: int | None = None
+     c2c_streaming: bool = True
++    social_trigger_enabled: bool = True
+     show_tool_hints: bool = False
+     stream_throttle_ms: int = 150
+     stream_hold_keepalive_s: float = 3.0
+@@ -240,6 +241,11 @@ class QQConfig(ChannelConfig):
+             # ``c2c_streaming: false`` remains the only opt-out.
+             config.c2c_streaming = True
+         raw_group_context = data.get("group_context")
++        if isinstance(raw_group_context, dict):
++            social_trigger_enabled = raw_group_context.get("social_trigger_enabled", True)
++            if type(social_trigger_enabled) is not bool:
++                raise ValueError("social_trigger_enabled must be a boolean")
++            config.social_trigger_enabled = social_trigger_enabled
+         if isinstance(raw_group_context, dict) and "enabled" not in raw_group_context:
+             config.group_context.enabled = True
+         if isinstance(raw_group_context, dict) and "owner_commands_only" not in raw_group_context:
+@@ -278,6 +284,11 @@ class QQChannel(BaseChannel):
+ 
+     channel_type = "qq"
+ 
++    @property
++    def social_trigger_enabled(self) -> bool:
++        """Whether the QQ channel permits the optional group participation plugin."""
++        return self._config.social_trigger_enabled
++
+     def __init__(
+         self,
+         processor: MessageProcessor,
+@@ -1095,6 +1106,8 @@ class QQChannel(BaseChannel):
+             "sender_id": sender_id,
+             "sender_name": sender_name,
+         }
++        if isinstance(sender, dict) and type(sender.get("bot")) is bool:
++            metadata["sender_is_bot"] = sender["bot"]
+         if is_group:
+             metadata["conversation_id"] = conversation_id
+             metadata["bot_mentioned"] = self._is_bot_mentioned(data, event_type)
+diff --git a/src/octop_gateway/group_context.py b/src/octop_gateway/group_context.py
+index 3b1966c..17d680f 100644
+--- a/src/octop_gateway/group_context.py
++++ b/src/octop_gateway/group_context.py
+@@ -301,7 +301,11 @@ class GroupContextManager:
+             and policy.history_limit > 0
+         )
+ 
+-    def prepare(self, message: InboundMessage) -> InboundMessage | None:
++    def policy_for(self, message: InboundMessage) -> GroupContextPolicy:
++        """Read the effective group policy without changing permission or history."""
++        return self._config.resolve(self._conversation_id(message))
++
++    def prepare(self, message: InboundMessage, *, force_activation: bool = False) -> InboundMessage | None:
+         """Record passive chatter or enrich a message that should reach the agent."""
+         if not self.accepts(message):
+             return None
+@@ -314,21 +318,23 @@ class GroupContextManager:
+         ):
+             message.allowed_tools = []
+         if not conversation_id:
+-            return message
++            return None if force_activation else message
+         if not policy.enabled:
+             message.group_context = None
+-            return message
++            return None if force_activation else message
+ 
+         self._expire(conversation_id, policy, now=message.timestamp)
+         activation, capability_degraded = self._effective_activation(policy)
+-        should_process = activation is GroupActivation.ALWAYS or bool(message.metadata.get("bot_mentioned"))
++        if force_activation and policy.visibility is not GroupVisibility.ALL:
++            return None
++        should_process = force_activation or activation is GroupActivation.ALWAYS or bool(message.metadata.get("bot_mentioned"))
+         if not should_process:
+             if policy.visibility is not GroupVisibility.MENTION_ONLY and policy.history is GroupHistoryMode.RECENT:
+                 self._append(conversation_id, message, policy)
+             return None
+ 
+         platform_messages = message.group_context.messages if message.group_context else []
+-        buffered = self._merge_messages(
++        buffered = platform_messages if force_activation else self._merge_messages(
+             platform_messages,
+             list(self._buffers.get(conversation_id, ())),
+         )
+diff --git a/src/octop_gateway/manager.py b/src/octop_gateway/manager.py
+index 9a5c653..19b66c5 100644
+--- a/src/octop_gateway/manager.py
++++ b/src/octop_gateway/manager.py
+@@ -97,6 +97,7 @@ class ChannelManager:
+         on_pre_lock: PreLockHandler | None = None,
+         control_message_predicate: MessagePredicate | None = None,
+         interrupt_message_predicate: MessagePredicate | None = None,
++        inbound_handler: Any | None = None,
+     ) -> None:
+         self._channels: dict[str, BaseChannel] = channels or {}
+         self._workers_per_channel = workers_per_channel
+@@ -107,6 +108,7 @@ class ChannelManager:
+         self._on_pre_lock = on_pre_lock
+         self._control_message_predicate = control_message_predicate
+         self._interrupt_message_predicate = interrupt_message_predicate
++        self._inbound_handler = inbound_handler
+ 
+         # Per-channel queues and workers
+         self._queues: dict[str, asyncio.Queue[Any]] = {}
+@@ -729,6 +731,23 @@ class ChannelManager:
+                 if not channel.group_context_manager.accepts(message):
+                     continue
+                 session_key = channel.get_debounce_key(message)
++                if self._inbound_handler is not None:
++                    async def dispatch(item: InboundMessage, *, activate: bool = False, receipt: Any | None = None) -> Any:
++                        # Delayed work must not revive a removed/replaced channel.
++                        if self._channels.get(channel_id) is not channel or not self._running:
++                            return None
++                        async with self._session_lock(channel_id, channel.get_debounce_key(item)):
++                            if self._channels.get(channel_id) is not channel or not self._running:
++                                return None
++                            return await channel.handle_inbound(item, force_activation=activate, receipt=receipt)
++                    try:
++                        if await self._inbound_handler(channel, message, dispatch):
++                            continue
++                    except Exception:
++                        logger.warning("inbound admission handler failed: channel=%s", channel_id)
++                        # Host commands, direct messages and mentions retain native routing.
++                        if channel.group_context_manager.handles(message) and not message.metadata.get("bot_mentioned") and not message.text.lstrip().startswith("/"):
++                            continue
+ 
+                 # Drain additional same-session items from queue
+                 batch = [message]
+diff --git a/tests/channels/test_qq_social_trigger.py b/tests/channels/test_qq_social_trigger.py
+new file mode 100644
+index 0000000..6ebdf8e
+--- /dev/null
++++ b/tests/channels/test_qq_social_trigger.py
+@@ -0,0 +1,11 @@
++import pytest
++
++from octop_gateway.channels.qq.channel import QQConfig
++
++
++def test_social_trigger_switch_reads_nested_qq_group_policy() -> None:
++    assert QQConfig.from_dict({}).social_trigger_enabled is True
++    assert QQConfig.from_dict({"group_context": {"social_trigger_enabled": False}}).social_trigger_enabled is False
++    assert QQConfig.from_dict({"group_context": {"social_trigger_enabled": True}}).social_trigger_enabled is True
++    with pytest.raises(ValueError, match="social_trigger_enabled"):
++        QQConfig.from_dict({"group_context": {"social_trigger_enabled": "false"}})

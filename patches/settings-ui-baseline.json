@@ -1,0 +1,10 @@
+{
+  "src/octop/api/routers/plugins.py": "8ff1d1b7d0c929b25b6b4a25ebe9475f89bfad11081bff5600491e14dc383236",
+  "dashboard/src/api/modules/plugins.ts": "aa52e7126cca42210f664bff49f0f754cfc90127d517af16ea21533b28be10fb",
+  "dashboard/src/locales/en.json": "0d1310847a41f5110ec34fc2aa06bb6881a24512acfe4f9d917731fd6015d2ff",
+  "dashboard/src/locales/zh.json": "e71c574bded6f73aedff0a7ee46866d4b72fc46f7ef73434fb42934bccc7844e",
+  "dashboard/src/pages/Admin/Plugins/InstalledPluginsPanel.tsx": "ede7dbeceab61581df7bb778af27b941a194caa128f041cebb84f805b5b640f5",
+  "dashboard/src/pages/Agent/Channels/ChannelsPanel.test.tsx": "fb14522ecbd34155bdae6874a61e5059fac089b5a00362fe994307a156f9c17f",
+  "dashboard/src/pages/Agent/Channels/components/ChannelDrawer.tsx": "7f2ce764ba5c506c004f0ab608dcc1cd78c93eed77fa6891770314e97546ce8a",
+  "dashboard/src/pages/Agent/Channels/components/constants.ts": "9dd3b97c00c45e039929fed9a42e08b1d0402027589d0e0d750e49ef981d9b4d"
+}

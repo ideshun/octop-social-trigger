@@ -1,0 +1,87 @@
+diff --git a/src/octop_harness/plugins/context.py b/src/octop_harness/plugins/context.py
+index a7b5aad..3d8d08a 100644
+--- a/src/octop_harness/plugins/context.py
++++ b/src/octop_harness/plugins/context.py
+@@ -23,6 +23,7 @@ class PluginContext:
+         self._source_path = source_path
+         self._tools: list[ToolRegistration] = []
+         self._middleware: list[MiddlewareRegistration] = []
++        self._inbound: list[Any] = []
+         self._channels: list[ChannelRegistration] = []
+         self._skills_dir: Path | None = None
+         self._model_factory: Any | None = None
+@@ -70,6 +71,18 @@ class PluginContext:
+             ),
+         )
+ 
++    def inbound(self, handler: Any) -> None:
++        """Register a pre-agent admission handler. Requires host gateway support.
++
++        handler.handle(channel, message, dispatch) -> awaitable[bool]. True
++        claims ordinary input; close() synchronously cancels owned pending work.
++        """
++        if self._manifest.kind != "hook":
++            raise ValueError("inbound handlers require kind=hook")
++        if not callable(getattr(handler, "handle", None)) or not callable(getattr(handler, "close", None)):
++            raise ValueError("inbound handler must implement handle() and close()")
++        self._inbound.append(handler)
++
+     def channel(
+         self,
+         kind: str,
+@@ -155,6 +168,7 @@ class PluginContext:
+             source_path=self._source_path,
+             tools=list(self._tools),
+             middleware=list(self._middleware),
++            inbound=list(self._inbound),
+             channels=list(self._channels),
+             skills_dir=self._skills_dir,
+         )
+diff --git a/src/octop_harness/plugins/registry.py b/src/octop_harness/plugins/registry.py
+index e317bec..ffddd05 100644
+--- a/src/octop_harness/plugins/registry.py
++++ b/src/octop_harness/plugins/registry.py
+@@ -76,6 +76,7 @@ class LoadedPlugin:
+     skills_dir: Path | None = None
+     diagnostics: list[str] = field(default_factory=list)
+     context: Any | None = None
++    inbound: list[Any] = field(default_factory=list)
+ 
+ 
+ class PluginRegistry:
+@@ -96,7 +97,8 @@ class PluginRegistry:
+         cls._instance = None
+ 
+     def clear(self) -> None:
+-        self._plugins.clear()
++        for plugin_id in list(self._plugins):
++            self.unregister(plugin_id)
+ 
+     def register(self, loaded: LoadedPlugin) -> None:
+         if any(reg.plugin_id != loaded.manifest.id for reg in loaded.channels):
+@@ -109,10 +111,24 @@ class PluginRegistry:
+                 continue
+             if set(kinds).intersection(reg.kind for reg in plugin.channels):
+                 raise ValueError("channel kind is already owned by another plugin")
++        old = self._plugins.get(loaded.manifest.id)
++        if old is not None and old is not loaded:
++            self.unregister(loaded.manifest.id)
+         self._plugins[loaded.manifest.id] = loaded
+ 
+     def unregister(self, plugin_id: str) -> LoadedPlugin | None:
+-        return self._plugins.pop(plugin_id, None)
++        removed = self._plugins.pop(plugin_id, None)
++        if removed is not None:
++            for handler in removed.inbound:
++                try:
++                    handler.close()
++                except Exception:
++                    import logging
++                    logging.getLogger(__name__).warning("inbound close failed: plugin=%s", plugin_id)
++        return removed
++
++    def all_inbound(self) -> list[Any]:
++        return [handler for plugin in self._plugins.values() for handler in plugin.inbound]
+ 
+     def get(self, plugin_id: str) -> LoadedPlugin | None:
+         return self._plugins.get(plugin_id)
