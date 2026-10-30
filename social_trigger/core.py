@@ -15,7 +15,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
-from .config import effective
+from .config import effective, group_allowed
 
 
 @dataclass(frozen=True)
@@ -80,6 +80,16 @@ class Engine:
                 CREATE TABLE IF NOT EXISTS streak (scope TEXT PRIMARY KEY, count INTEGER NOT NULL, last_sent REAL NOT NULL);
                 CREATE TABLE IF NOT EXISTS classifier_calls (day TEXT PRIMARY KEY, count INTEGER NOT NULL);
             """)
+            # Existing state belongs to the former QQ-only plugin. Keep quotas
+            # and uncertain reservations when introducing a platform namespace.
+            db.execute("BEGIN IMMEDIATE")
+            for table in ("seen", "replies", "streak"):
+                for (scope,) in db.execute(f"SELECT DISTINCT scope FROM {table}").fetchall():
+                    parts = json.loads(scope)
+                    if len(parts) == 4:
+                        scoped = json.dumps(["qq", *parts], ensure_ascii=False, separators=(",", ":"))
+                        db.execute(f"UPDATE {table} SET scope=? WHERE scope=?", (scoped, scope))
+            db.commit()
 
     @contextmanager
     def _connect(self):
@@ -96,7 +106,9 @@ class Engine:
     @staticmethod
     def _identity(m):
         scope = json.dumps(
-            [m.tenantId, m.channelInstanceId, m.groupId, m.agentId], ensure_ascii=False, separators=(",", ":")
+            [m.platform, m.tenantId, m.channelInstanceId, m.groupId, m.agentId],
+            ensure_ascii=False,
+            separators=(",", ":"),
         )
         native_id = (
             m.messageId or hashlib.sha256(f"{m.senderId}\0{m.text}\0{int(m.receivedAt // 10)}".encode()).hexdigest()
@@ -155,10 +167,7 @@ class Engine:
                 return Decision("pass", "host_route")
             if not m.text.strip():
                 return Decision("skip", "empty_text")
-            group = [m.channelInstanceId, m.groupId]
-            if group in self.config["denyGroups"] or (
-                self.config["allowGroups"] and group not in self.config["allowGroups"]
-            ):
+            if not group_allowed(self.config, m.platform, m.channelInstanceId, m.groupId):
                 return Decision("skip", "group_not_allowed")
             if m.visibilityGranted != "all":
                 return Decision("skip", "permission_downgraded")
@@ -181,7 +190,9 @@ class Engine:
             if not preflight:
                 db.execute("DELETE FROM seen WHERE at < ?", (now - 86400,))
                 db.execute("DELETE FROM replies WHERE status='sent' AND at < ?", (now - 259200,))
-            if db.execute("SELECT 1 FROM seen WHERE scope=? AND id=? AND at>=?", (scope, native_id, now - 86400)).fetchone():
+            if db.execute(
+                "SELECT 1 FROM seen WHERE scope=? AND id=? AND at>=?", (scope, native_id, now - 86400)
+            ).fetchone():
                 db.commit()
                 return result("skip", "duplicate")
             if not dry and not preflight:

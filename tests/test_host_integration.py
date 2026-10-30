@@ -20,7 +20,7 @@ try:
 except ImportError:
     SUPPORTED = False
 
-from social_trigger.config import load, validate
+from social_trigger.config import instance_key, load, validate
 from social_trigger.runtime import Runtime
 
 
@@ -164,6 +164,7 @@ class Integration(unittest.IsolatedAsyncioTestCase):
     async def test_decision_model_timeout_falls_back_and_mention_stays_native(self):
         async def slow(**_kwargs):
             await asyncio.sleep(1)
+
         runtime, manager = await self.runtime(
             dryRun=True,
             defaults={"mode": "smart", "replyProbability": 1, "decisionModelTimeoutMs": 30},
@@ -188,9 +189,7 @@ class Integration(unittest.IsolatedAsyncioTestCase):
 
     async def test_decision_model_is_not_called_when_disabled_or_over_quota(self):
         provider = AsyncMock()
-        runtime, manager = await self.runtime(
-            dryRun=True, defaults={"mode": "smart", "decisionModelEnabled": False}
-        )
+        runtime, manager = await self.runtime(dryRun=True, defaults={"mode": "smart", "decisionModelEnabled": False})
         runtime.bind_decision_scorer(provider)
         self.send(manager, "decision-disabled", content="普通聊天")
         await wait_for(lambda: any(r["reasonCode"] == "score_below_threshold" for r in runtime.recent))
@@ -223,12 +222,18 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         self.send(manager, "pending-settings")
         await wait_for(lambda: any(r["reasonCode"] == "eligible" for r in runtime.recent))
         await runtime.update_settings(
-            enabled=True, dry_run=True, channel_id=self.channel.channel_id, group_id="group", agent_id="agent",
+            enabled=True,
+            dry_run=True,
+            channel_id=self.channel.channel_id,
+            group_id="group",
+            agent_id="agent",
             policy={"mode": "probability", "replyProbability": 1, "randomDelayMinMs": 0, "randomDelayMaxMs": 0},
         )
         self.assertEqual(self.calls, [])
         self.assertTrue(load(runtime.config_path)["dryRun"])
-        self.assertEqual(runtime.settings_for(self.channel.channel_id, "group", "agent")["policy"]["mode"], "probability")
+        self.assertEqual(
+            runtime.settings_for(self.channel.channel_id, "group", "agent")["policy"]["mode"], "probability"
+        )
         self.send(manager, "after-settings")
         await wait_for(lambda: any(r["reasonCode"] == "dry_run_would_trigger" for r in runtime.recent))
         self.assertEqual(self.calls, [])
@@ -239,10 +244,14 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         runtime, _ = await self.runtime(enabled=False)
         runtime.config_path = Path(self.temp.name) / "first-config.json"
         await runtime.update_settings(
-            enabled=True, dry_run=True, channel_id=self.channel.channel_id, group_id="group", agent_id="agent",
+            enabled=True,
+            dry_run=True,
+            channel_id=self.channel.channel_id,
+            group_id="group",
+            agent_id="agent",
             policy={"mode": "smart"},
         )
-        self.assertEqual(runtime.config["allowGroups"], [[self.channel.channel_id, "group"]])
+        self.assertEqual(runtime.config["allowGroups"], [[instance_key("qq", self.channel.channel_id), "group"]])
 
     async def test_unload_cancels_and_releases_pending(self):
         runtime, manager = await self.runtime(
@@ -422,10 +431,17 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         get_settings = getattr(plugin_channels, "plugin_channel_settings", None)
         if get_settings:
             fields = get_settings(PluginRegistry())
-            self.assertTrue(any(field["plugin_id"] == "octop-social-trigger" and field["name"] == "social_trigger_enabled" for field in fields))
+            self.assertTrue(
+                any(
+                    field["plugin_id"] == "octop-social-trigger" and field["name"] == "social_trigger_enabled"
+                    for field in fields
+                )
+            )
         self.assertTrue(unload_plugin("octop-social-trigger"))
         if get_settings:
-            self.assertFalse(any(field["plugin_id"] == "octop-social-trigger" for field in get_settings(PluginRegistry())))
+            self.assertFalse(
+                any(field["plugin_id"] == "octop-social-trigger" for field in get_settings(PluginRegistry()))
+            )
         self.assertTrue(loaded.inbound[0]._closed)
 
 

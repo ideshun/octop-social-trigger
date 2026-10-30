@@ -1,11 +1,15 @@
 # 入站契约与时序
 
-原始 QQ 包 → `QQChannel.parse_inbound`（保留平台 `author.bot`）→ Gateway 命令权限检查 → Octop 动态读取已启用插件的 `PluginRegistry.all_inbound()` → `Runtime.handle()`。
+平台包 → BaseChannel.parse_inbound → Gateway 命令权限检查 → 已加载的通用入站处理器 → 原生会话锁/激活策略 → Agent。
 
-普通输入被接管后，运行时在每个租户/实例/群/Agent 的短锁内去重并更新内存窗口，随后返回 worker。异步任务在锁外防抖、规则判定、原子预占、随机等待，再调用 Gateway 提供的 `dispatch()`。此续处理回调重新核验通道仍注册，在原生会话锁内执行 `handle_inbound(force_activation=True)`；Gateway 仅在启用群策略且显式 `visibility=all` 时允许覆盖 activation。命令和 @ 不被伪造为普通消息，未获授权的处理不会被恢复。
+策略运行在原生 @ 激活判断之前，只处理已获全部消息可见范围的普通群文本。适配器必须给出稳定群 ID、发送者 ID、明确 bot_mentioned 和 sender_is_bot；Octo 可通过成员缓存异步解析发送者身份。QQ 另检查 GROUP_MESSAGE_CREATE 事件类型。缺少通用字段的适配器保留原路由；未知的 QQ/Octo 发送者不自动参与。
 
-强制激活只附带插件审查过且仍在 TTL 内的上下文，不混入宿主更长 TTL 的被动缓存；宿主的命令/工具权限过滤继续执行。普通新消息会取消同作用域尚未完成的被动任务并重新合并；@ 会清空窗口并取消被动任务，再走原生 @ 路由。
+所有配置和状态以通道类型、通道实例、群、专家隔离。配置逐层继承，群级与专家级只存相对父级的差异。旧 QQ 配置和 quota/dedupe 状态迁移时保留；新平台必须显式纳入允许范围。
 
-`InboundReceipt` 通过 ContextVar 关联本轮的 `reply_text/content/media`，记录发送是否尝试、是否至少成功一次。它独立于原有 `processing_succeeded`：空的 COMPLETED 不算发送。成功提交计数；未尝试的取消释放预占；尝试后无明确成功视为未知，保留 pending。QQ 群的标准 buffered 输出是 v1 验证范围，其他自定义流式通道未声明兼容。
+每个作用域中，输入先去重并更新有界内存窗口，随后返回 worker。异步任务在锁外等待防抖、执行规则与可选模型评分、原子预占限额、随机等待，再通过 Gateway dispatch(activate=True) 继续。续派发重新核验通道仍注册、可见范围、群策略和权限，保留会话锁与适配器原有流程。普通新消息取消尚未派发的被动任务，@ 清空窗口并走原生路径。
 
-Harness 的 `ctx.inbound(handler)` 是本仓库补丁引入的新接口，要求 `kind=hook` 和 `handle/close`。清空、替换、卸载注册时调用 close；Octop 关闭 Gateway 时等待可选的 `wait_closed()`，取消窗口和延迟任务。尚未打补丁的宿主没有此接口，插件入口会报明确不兼容错误。未注册入站策略时 Gateway 保持原处理流程。
+接管输入后 Gateway 调用适配器 on_inbound_claimed。Octo 将尚未进入专家的源消息标记 ignored 并释放收件箱容量；选中的延迟回复仍在 _prepare_inbound / _process_inbound 中经历 started/completed，不覆盖已开始或完成的状态。被动参与不重放已被策略消费的消息。
+
+InboundReceipt 关联真实输出的发送尝试与至少一次成功，成功提交配额、未尝试的取消释放预占、结果不明确的发送保留 pending。插件卸载时 close 同步取消任务，wait_closed 等待释放；群策略关闭、权限收窄和通道移除后都不得继续自动回复。
+
+决策评分器由宿主可选注入，调用前读取当前全局配置，不复制凭据。插件限制上下文、调用等待和每日预算；未启用或不可用时回退本地规则。

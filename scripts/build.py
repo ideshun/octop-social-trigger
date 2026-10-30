@@ -1,4 +1,4 @@
-"""Reproducible native plugin and host-patch archives; never packages local state."""
+"""Build a reproducible native plugin archive; never packages local state."""
 
 from pathlib import Path
 import hashlib
@@ -69,6 +69,7 @@ def schema():
         "additionalProperties": False,
         "$defs": {"policy": {"type": "object", "properties": properties, "additionalProperties": False}},
         "properties": {
+            "schemaVersion": {"type": "integer", "const": 2},
             "enabled": {"type": "boolean", "default": False},
             "dryRun": {"type": "boolean", "default": True},
             "timezone": {"type": "string", "default": "Asia/Shanghai"},
@@ -118,14 +119,9 @@ def main():
     ]
     files += list((ROOT / "social_trigger").glob("*.py"))
     files += list((ROOT / "docs").glob("*.md"))
-    files += list((ROOT / "patches").glob("*"))
     plugin = dist / f"octop-social-trigger-{VERSION}.zip"
     archive(plugin, files, "octop-social-trigger")
-    patch = dist / f"octop-social-trigger-host-patches-{VERSION}.zip"
-    archive(patch, list((ROOT / "patches").glob("*")), "octop-social-trigger-host-patches")
-    (dist / "SHA256SUMS").write_text(
-        "".join(hashlib.sha256(p.read_bytes()).hexdigest() + "  " + p.name + "\n" for p in (plugin, patch))
-    )
+    (dist / "SHA256SUMS").write_text(hashlib.sha256(plugin.read_bytes()).hexdigest() + "  " + plugin.name + "\n")
     print((dist / "SHA256SUMS").read_text(), end="")
 
 

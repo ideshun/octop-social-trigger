@@ -166,6 +166,10 @@
     }
   },
   "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 2
+    },
     "enabled": {
       "type": "boolean",
       "default": false

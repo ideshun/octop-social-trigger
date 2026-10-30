@@ -31,6 +31,7 @@ DEFAULTS = {
     "classifier": {"enabled": False, "timeoutMs": 1800, "maxCallsPerDay": 100},
 }
 TOP = {
+    "schemaVersion",
     "enabled",
     "dryRun",
     "timezone",
@@ -43,6 +44,38 @@ TOP = {
     "denyGroups",
 }
 MODES = {"disabled", "mention_only", "smart", "probability", "always"}
+SCOPES = ("defaults", "channelTypes", "channelInstances", "groups", "groupAgents")
+
+
+def instance_key(platform, instance):
+    """Namespace adapter-owned IDs without delimiter ambiguity."""
+    return json.dumps([platform, instance], ensure_ascii=False, separators=(",", ":"))
+
+
+def _namespaced(key):
+    try:
+        value = json.loads(key)
+        return (
+            isinstance(value, list)
+            and len(value) == 2
+            and all(isinstance(x, str) and x.strip() for x in value)
+            and key == instance_key(*value)
+        )
+    except (ValueError, TypeError):
+        return False
+
+
+def group_allowed(config, platform, instance, group):
+    candidates = (
+        [instance_key(platform, instance), group],
+        [instance_key(platform, instance), "*"],
+        [instance_key(platform, "*"), "*"],
+    )
+    return not any(x in config["denyGroups"] for x in candidates) and any(
+        x in config["allowGroups"] for x in candidates
+    )
+
+
 RANGES = {
     "replyProbability": (0, 1),
     "smartScoreThreshold": (0, 1),
@@ -68,6 +101,18 @@ def _merge(base, patch):
             result[key] = _merge(result[key], value)
         else:
             result[key] = value
+    return result
+
+
+def _diff(values, parent):
+    result = {}
+    for key, value in values.items():
+        if isinstance(value, dict) and isinstance(parent.get(key), dict):
+            patch = _diff(value, parent[key])
+            if patch:
+                result[key] = patch
+        elif value != parent.get(key):
+            result[key] = copy.deepcopy(value)
     return result
 
 
@@ -124,6 +169,7 @@ def validate(raw):
     if not isinstance(raw, dict) or raw.keys() - TOP:
         raise ValueError("configuration must be an object with known fields")
     config = {
+        "schemaVersion": 2,
         "enabled": False,
         "dryRun": True,
         "timezone": "Asia/Shanghai",
@@ -136,6 +182,30 @@ def validate(raw):
         "denyGroups": [],
     }
     config.update(copy.deepcopy(raw))
+    if type(raw.get("schemaVersion", 1)) is not int or raw.get("schemaVersion", 1) not in (1, 2):
+        raise ValueError("unsupported configuration schemaVersion")
+    # v1 was QQ-only. Preserve its scope and never opt another platform in.
+    if raw.get("schemaVersion", 1) == 1:
+        for name in ("channelInstances", "groups", "groupAgents"):
+            table = config[name]
+            if isinstance(table, dict):
+                config[name] = {
+                    key if _namespaced(key) else instance_key("qq", key): value for key, value in table.items()
+                }
+        for name in ("allowGroups", "denyGroups"):
+            if isinstance(config[name], list):
+                config[name] = [
+                    [instance_key("qq", pair[0]), pair[1]]
+                    if isinstance(pair, list)
+                    and len(pair) == 2
+                    and isinstance(pair[0], str)
+                    and not _namespaced(pair[0])
+                    else pair
+                    for pair in config[name]
+                ]
+        if raw.get("enabled") is True and not config["allowGroups"]:
+            config["allowGroups"] = [[instance_key("qq", "*"), "*"]]
+    config["schemaVersion"] = 2
     for key in ("enabled", "dryRun"):
         if type(config[key]) is not bool:
             raise ValueError(f"{key}: expected boolean")
@@ -147,6 +217,8 @@ def validate(raw):
     config["defaults"] = _merge(DEFAULTS, config["defaults"])
     for key, depth in (("channelTypes", 1), ("channelInstances", 1), ("groups", 2), ("groupAgents", 3)):
         _table(config[key], depth, key)
+        if key != "channelTypes" and any(not _namespaced(item) for item in config[key]):
+            raise ValueError(f"{key}: expected namespaced channel instance IDs")
     for key in ("allowGroups", "denyGroups"):
         groups = config[key]
         if not isinstance(groups, list) or any(
@@ -154,6 +226,8 @@ def validate(raw):
             for x in groups
         ):
             raise ValueError(f"{key}: expected list of [channelInstanceId, groupId]")
+        if any(not _namespaced(pair[0]) for pair in groups):
+            raise ValueError(f"{key}: expected namespaced channel instance IDs")
 
     # Validate combined settings as well as individual overrides.
     def check_merged(p):
@@ -161,6 +235,42 @@ def validate(raw):
             raise ValueError("randomDelayMinMs must not exceed randomDelayMaxMs")
 
     check_merged(config["defaults"])
+    # Remove redundant v1 copies so later parent changes can be inherited.
+    if raw.get("schemaVersion", 1) == 1:
+
+        def prune(patch, parent):
+            return _diff(_merge(parent, patch), parent)
+
+        for platform, patch in config["channelTypes"].items():
+            config["channelTypes"][platform] = prune(patch, config["defaults"])
+        for key, patch in config["channelInstances"].items():
+            platform, instance = json.loads(key)
+            config["channelInstances"][key] = prune(
+                patch, effective(config, platform, instance, "", "", scope="channelTypes")[0]
+            )
+        for key, groups in config["groups"].items():
+            platform, instance = json.loads(key)
+            for group, patch in groups.items():
+                groups[group] = prune(
+                    patch, effective(config, platform, instance, group, "", scope="channelInstances")[0]
+                )
+        for key, groups in config["groupAgents"].items():
+            platform, instance = json.loads(key)
+            for group, agents in groups.items():
+                for agent, patch in agents.items():
+                    agents[agent] = prune(patch, effective(config, platform, instance, group, agent, scope="groups")[0])
+    # A parent change must not invalidate an already configured child scope.
+    for platform in config["channelTypes"]:
+        effective(config, platform, "", "", "", scope="channelTypes")
+    for key in config["channelInstances"]:
+        effective(config, *json.loads(key), "", "", scope="channelInstances")
+    for key, groups in config["groups"].items():
+        for group in groups:
+            effective(config, *json.loads(key), group, "", scope="groups")
+    for key, groups in config["groupAgents"].items():
+        for group, agents in groups.items():
+            for agent in agents:
+                effective(config, *json.loads(key), group, agent)
     return config
 
 
@@ -168,7 +278,10 @@ def load(path):
     return validate(json.loads(Path(path).read_text(encoding="utf-8")))
 
 
-def effective(config, platform, instance, group, agent):
+def effective(config, platform, instance, group, agent, *, scope="groupAgents"):
+    if scope not in SCOPES:
+        raise ValueError("invalid settings scope")
+    instance = instance_key(platform, instance)
     policy = copy.deepcopy(config["defaults"])
     source = {key: "defaults" for key in policy}
     for name, patch in (
@@ -177,6 +290,8 @@ def effective(config, platform, instance, group, agent):
         ("groups", config["groups"].get(instance, {}).get(group, {})),
         ("groupAgents", config["groupAgents"].get(instance, {}).get(group, {}).get(agent, {})),
     ):
+        if SCOPES.index(name) > SCOPES.index(scope):
+            break
         policy = _merge(policy, patch)
         source.update({key: name for key in patch})
     if policy["randomDelayMinMs"] > policy["randomDelayMaxMs"]:
