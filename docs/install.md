@@ -1,19 +1,52 @@
-# 安装与灰度
+# 安装、升级与灰度
 
-使用本工作区已经整合这些改动的 Octop、Gateway 和 Harness 源码时，无需重复打补丁。其他兼容源码需要 `patches/` 中三个接入补丁和 `octop-settings-ui-v1.patch` 配置界面补丁；仅安装 ZIP 不够。当前最低兼容基线与文件哈希见 `baseline.json` / [兼容性](compatibility.md)。不要直接覆盖已有未提交修改。
+## 宿主兼容要求
 
-0.1.1 的通道开关联动还需要包含插件通道设置接口的新版 Octop 和 Gateway；本包附带的旧版宿主补丁不包含该新增接口。旧宿主仍可运行插件，但不会提供按插件加载状态显示开关的行为。
+完整功能需要 Octop 提供入站插件接口、QQ 群聊设置接口和决策模型注入接口。推荐使用 [ideshun/Octop 的 `develop`](https://github.com/ideshun/Octop/tree/develop)，至少包含提交 [`dd9dcce8`](https://github.com/ideshun/Octop/commit/dd9dcce8ada359e97d274e0d0c70094a9b908876) 中的插件设置与决策模型接入。
 
-0.1.2 可复用 Octop 已启用的决策模型；需要包含决策模型注入接口的新 Octop 宿主。旧宿主或决策服务不可用时仍使用本地规则。本包附带的旧版 host-patches 不包含该新增接口。
+直接安装 ZIP 不会修改 Octop 宿主。腾讯上游或其他旧版本需要按 `patches/baseline.json` 指定的代码基线应用入站补丁，并按需构建设置界面；决策模型接入还要包含上述宿主接口。`dist/octop-social-trigger-host-patches-0.1.2.zip` 不包含全部较新的宿主联动，不能单独保证完整功能。先检查 [兼容性说明](compatibility.md)，不要把补丁套到不匹配的源码版本。
 
-1. 先用宿主的常规方式备份配置和数据库；记录 QQ 原来的群策略。对生产实例先停止新任务。插件不读取/重写任何通道凭据。
-2. 在三个源码目录分别执行对应补丁的 `git apply --check /absolute/path/to/PATCH`，核对 diff 后再 `git apply`；Octop 还需应用 `octop-settings-ui-v1.patch` 并构建 Dashboard。推荐先用源码副本运行 `make all`。补丁不更改 QQ API 域名。
-3. 重新安装更新后的 Gateway/Harness/Octop 源码包到宿主虚拟环境，确保运行实例导入的是已打补丁的版本；重启测试实例。三个补丁必须一起部署。当前本机使用 editable 安装，源码包变更仍需重启进程。
-4. 校验 ZIP 的 SHA-256。在管理员插件页上传 `dist/octop-social-trigger-0.1.2.zip`（宿主为 `POST /api/plugins/upload`），或者解压后执行 `octop plugin install /absolute/path/to/octop-social-trigger --force`。本机版本 CLI **不支持直接传本地 ZIP 路径**；不能照抄设计文档中的本地 ZIP 命令。
-5. `octop plugin list` 核对条目。管理员插件页“重载”会更新运行实例；CLI `octop plugin reload` 仅在自己的离线进程重载，仍需服务重启或管理员重载。
-6. 插件默认关闭并启用试运行。在管理后台插件详情的「群聊参与设置」中选择群、启用参与并保存；高级设置也可在 `$OCTOP_HOME/plugin-state/octop-social-trigger/config.json` 配置。插件升级不会覆盖持久配置。
-7. 在 QQ 手机端确认群内全量消息授权；宿主配置 `group_context.enabled=true,visibility=all,activation=mention`，并在群聊策略开启「QQ 群聊自动参与」。该开关只允许插件接管，仍需在插件配置中启用。`activation=mention` 使插件关闭时回退到原生 @ 流程。
-8. 配置只允许测试群，先 `enabled=true,dryRun=true` 并重载。普通群文本应只有决策日志，无 Agent 调用或发送；@ 回复按原路由验证。
-9. 审查生效配置、去重/配额和日志后，再设置小概率及 `dryRun=false`。此操作会真实调用 Agent 并发送 QQ 回复，须由管理员明确开启。观察成功发送日志与 SQLite 计数，再扩大范围。
+## 安装 v0.1.2
 
-新增接口只负责选择/继续入站；原生命令鉴权、工具上限、Agent 安全规则、平台发送频控继续生效。插件不能取得 QQ 未授予的消息范围，不能发送平台禁止的内容或越过平台回复窗口。
+固定版本的发布包：[`octop-social-trigger-0.1.2.zip`](https://github.com/ideshun/octop-social-trigger/releases/download/v0.1.2/octop-social-trigger-0.1.2.zip)，SHA-256：`616a929f537de9d7361ffd3fa6bbfcd7c67e2174d9c629d3ad6fca8240ed6019`。
+
+**管理页面**：打开 **管理 → 插件 → 安装**，粘贴上面的 ZIP 下载地址，或先下载 ZIP 再上传。安装完成后启用「QQ 群聊自动参与」插件。
+
+**命令行**：
+
+```sh
+# 首次安装
+octop plugin install https://github.com/ideshun/octop-social-trigger/releases/download/v0.1.2/octop-social-trigger-0.1.2.zip
+
+# 覆盖已安装版本
+octop plugin install https://github.com/ideshun/octop-social-trigger/releases/download/v0.1.2/octop-social-trigger-0.1.2.zip --force
+```
+
+命令也可安装本地插件目录，但不接受本地 ZIP 文件路径。安装目录应在 Octop 服务使用的运行环境中操作。
+
+## 首次启用与试运行
+
+1. 备份 Octop 配置和数据库，确认 QQ 群主已授权机器人获取群内全部消息。
+2. 在 Octop 的 QQ 通道设置中开启「QQ 群聊自动参与」。这只允许插件处理普通群消息。
+3. 在插件设置中启用插件，并只选择要测试的 QQ 群；保留默认试运行状态。
+4. 按群设置为「智能选择」或指定回复概率。检查 `dry_run_would_trigger`、`score_below_threshold` 等决策原因，以及白名单和回复限额。
+5. 验证 @ 回复仍按 Octop 原有流程运行。只有确认群范围、QQ 权限和决策结果后，才关闭试运行；关闭试运行后，符合条件的消息可能触发 Agent 并发送真实 QQ 回复。
+
+插件默认 `enabled=false,dryRun=true`。智能模式下决策模型选项默认开启，但只有 Octop 全局模型启用并可用时才调用。试运行也可能把当前消息及最多五条近期群消息发送给配置的决策服务；服务不可用、超时或达到每日限额时会回退本地规则。
+
+## 升级与重载
+
+通过管理页面上传新版本，或使用上面的 CLI 命令并添加 `--force`。升级不会覆盖 `$OCTOP_HOME/plugin-state/octop-social-trigger/` 中的持久配置和状态数据库。
+
+升级后在管理页面点击「重载」，或重启正在运行的 Octop 服务。`octop plugin reload` 只重载执行该命令的离线进程，不会重载后台服务。
+
+## 回滚
+
+在管理页面禁用插件并关闭 QQ 通道的「QQ 群聊自动参与」，再安装旧 ZIP。保留 `$OCTOP_HOME/plugin-state/octop-social-trigger/`，避免丢失群策略、去重和配额状态。完整恢复说明见[回滚文档](rollback.md)。
+
+## 更多说明
+
+- [兼容性与验证范围](compatibility.md)
+- [QQ 收消息排查](qq-receive-diagnosis.md)
+- [状态和验证记录](validation.md)
+- [设计文档](octop-social-trigger-design%EF%BC%88Octop%20Social%20Trigger%20%C2%B7%20%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3%20v1.0%EF%BC%89.md)
