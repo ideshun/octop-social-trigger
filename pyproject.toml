@@ -1,6 +1,6 @@
 [project]
 name = "octop-social-trigger"
-version = "0.1.1"
+version = "0.1.2"
 description = "Pre-agent QQ group participation policy for Octop with inbound-v1 host patches"
 requires-python = ">=3.12"
 license = "MIT"

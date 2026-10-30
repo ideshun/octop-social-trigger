@@ -141,10 +141,12 @@ class Tests(unittest.TestCase):
         )
         p, sources = effective(cfg, "qq", "c", "g", "a")
         self.assertEqual((p["mode"], p["replyProbability"], sources["mode"]), ("mention_only", 0, "groups"))
+        self.assertTrue(validate({"defaults": {"classifier": {"enabled": False}}})["defaults"]["decisionModelEnabled"])
         for invalid in (
             {"defaults": {"mode": "ALWAYS"}},
             {"enabled": 1},
             {"defaults": {"replyProbability": 1.1}},
+            {"defaults": {"decisionModelEnabled": 1}},
             {"defaults": {"classifier": {"enabled": True}}},
         ):
             with self.assertRaises(ValueError):
@@ -158,6 +160,28 @@ class Tests(unittest.TestCase):
         )
         d = engine.evaluate(message(isReplyToBot=True))
         self.assertEqual((d.action, d.delayMs, d.evaluatedScore), ("delay", 10, 1.0))
+
+    def test_decision_score_preflight_and_fallback_preserve_limits(self):
+        cfg = config(mode="smart", replyProbability=1, maxBotReplyRatio=1)
+        engine = Engine(cfg, self.path, clock=lambda: NOW)
+        msg = message(messageId="model", text="ordinary message")
+        self.assertEqual(engine.evaluate(msg, preflight=True).action, "classify")
+        decision = engine.evaluate(msg, model_score=0.9)
+        self.assertEqual((decision.action, decision.evaluatedScore), ("trigger", 0.9))
+        self.assertEqual(engine.evaluate(msg).reasonCode, "duplicate")
+        self.assertTrue(engine.finalize(decision.reservationId, sent=False))
+        blocked = Engine(config(mode="smart", maxPassiveRepliesPerHour=0), self.path, clock=lambda: NOW)
+        self.assertEqual(blocked.evaluate(message(messageId="blocked"), preflight=True).reasonCode, "hourly_limit")
+        fallback = Engine(cfg, self.path, clock=lambda: NOW)
+        self.assertEqual(fallback.evaluate(message(messageId="fallback"), model_score=float("nan")).reasonCode, "score_below_threshold")
+        self.assertEqual(fallback.evaluate(message(messageId="model-low", isReplyToBot=True), model_score=0.1).reasonCode, "score_below_threshold")
+        probability = Engine(config(mode="smart", replyProbability=0, maxBotReplyRatio=1), self.path, clock=lambda: NOW)
+        self.assertEqual(probability.evaluate(message(messageId="probability"), model_score=0.9).reasonCode, "probability")
+
+    def test_decision_call_budget_is_atomic(self):
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(lambda _: self.engine.reserve_classifier_call(3), range(12)))
+        self.assertEqual(sum(results), 3)
 
     def test_consecutive_replies_reset_after_fresh_human_input(self):
         engine = Engine(config(maxConsecutiveReplies=1, maxBotReplyRatio=1), self.path, clock=lambda: NOW)

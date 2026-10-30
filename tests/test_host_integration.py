@@ -1,11 +1,12 @@
 """Offline end-to-end contract tests for patched Gateway and Harness."""
 
 import asyncio
+import json
 import tempfile
 import time
 import unittest
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 try:
     from octop_gateway.channel import InboundReceipt
@@ -119,6 +120,86 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         self.send(manager, "dry")
         await wait_for(lambda: any(r["reasonCode"] == "dry_run_would_trigger" for r in runtime.recent))
         self.assertEqual(self.calls, [])
+
+    async def test_decision_model_scores_smart_mode_without_calling_agent_in_dry_run(self):
+        scorer = AsyncMock(return_value={"participate": 0.95})
+        provider = AsyncMock(return_value=scorer)
+        runtime, manager = await self.runtime(dryRun=True, defaults={"mode": "smart", "replyProbability": 1})
+        runtime.bind_decision_scorer(provider)
+        self.send(manager, "model-eligible", content="普通聊天")
+        await wait_for(lambda: any(r["reasonCode"] == "dry_run_would_trigger" for r in runtime.recent))
+        scorer.assert_awaited_once()
+        state = json.loads(scorer.await_args.kwargs["state"])
+        self.assertEqual(state["当前消息"], "普通聊天")
+        self.assertEqual(runtime.recent[-1]["decisionSource"], "model")
+        self.assertNotIn("human", scorer.await_args.kwargs["state"])
+        self.assertNotIn("group", scorer.await_args.kwargs["state"])
+        self.assertEqual(self.calls, [])
+
+    async def test_decision_model_can_trigger_normal_reply(self):
+        scorer = AsyncMock(return_value={"participate": 0.95})
+        runtime, manager = await self.runtime(defaults={"mode": "smart", "replyProbability": 1})
+        runtime.bind_decision_scorer(AsyncMock(return_value=scorer))
+        self.send(manager, "model-live", content="普通聊天")
+        await wait_for(lambda: len(self.calls) == 1 and not runtime._tasks)
+        scorer.assert_awaited_once()
+        self.channel._send_text.assert_awaited_once()
+        self.assertTrue(any(r["reasonCode"] == "reply_sent" for r in runtime.recent))
+
+    async def test_decision_model_disabled_or_failing_falls_back_to_rules(self):
+        provider = AsyncMock(return_value=None)
+        runtime, manager = await self.runtime(dryRun=True, defaults={"mode": "smart", "replyProbability": 1})
+        runtime.bind_decision_scorer(provider)
+        self.send(manager, "disabled-model", content="普通聊天")
+        await wait_for(lambda: any(r["reasonCode"] == "score_below_threshold" for r in runtime.recent))
+        self.assertEqual(runtime.recent[-1]["decisionSource"], "rules")
+        provider.assert_awaited_once()
+        scorer = AsyncMock(side_effect=RuntimeError("unavailable"))
+        provider.return_value = scorer
+        self.send(manager, "failed-model", content="完全不同的话")
+        await wait_for(lambda: any(r["reasonCode"] == "decision_model_unavailable" for r in runtime.recent))
+        await wait_for(lambda: sum(r["reasonCode"] == "score_below_threshold" for r in runtime.recent) >= 2)
+        self.assertEqual(self.calls, [])
+
+    async def test_decision_model_timeout_falls_back_and_mention_stays_native(self):
+        async def slow(**_kwargs):
+            await asyncio.sleep(1)
+        runtime, manager = await self.runtime(
+            dryRun=True,
+            defaults={"mode": "smart", "replyProbability": 1, "decisionModelTimeoutMs": 30},
+        )
+        runtime.bind_decision_scorer(AsyncMock(return_value=slow))
+        self.send(manager, "timeout-model", content="普通聊天")
+        await wait_for(lambda: any(r["reasonCode"] == "score_below_threshold" for r in runtime.recent))
+        self.send(manager, "mention-after-timeout", mentioned=True)
+        await wait_for(lambda: len(self.calls) == 1)
+
+    async def test_invalid_decision_response_uses_rules_and_pauses_retries(self):
+        scorer = AsyncMock(return_value={"participate": float("nan")})
+        provider = AsyncMock(return_value=scorer)
+        runtime, manager = await self.runtime(dryRun=True, defaults={"mode": "smart", "replyProbability": 1})
+        runtime.bind_decision_scorer(provider)
+        self.send(manager, "invalid-model-1", content="甲乙丙丁")
+        await wait_for(lambda: any(r["reasonCode"] == "decision_model_unavailable" for r in runtime.recent))
+        self.send(manager, "invalid-model-2", content="天地玄黄")
+        await wait_for(lambda: sum(r["reasonCode"] == "score_below_threshold" for r in runtime.recent) >= 2)
+        scorer.assert_awaited_once()
+        self.assertEqual(self.calls, [])
+
+    async def test_decision_model_is_not_called_when_disabled_or_over_quota(self):
+        provider = AsyncMock()
+        runtime, manager = await self.runtime(
+            dryRun=True, defaults={"mode": "smart", "decisionModelEnabled": False}
+        )
+        runtime.bind_decision_scorer(provider)
+        self.send(manager, "decision-disabled", content="普通聊天")
+        await wait_for(lambda: any(r["reasonCode"] == "score_below_threshold" for r in runtime.recent))
+        provider.assert_not_awaited()
+        runtime.config["defaults"]["decisionModelEnabled"] = True
+        runtime.config["defaults"]["maxPassiveRepliesPerHour"] = 0
+        self.send(manager, "over-quota", content="另一条消息")
+        await wait_for(lambda: any(r["reasonCode"] == "hourly_limit" for r in runtime.recent))
+        provider.assert_not_awaited()
 
     async def test_mention_cancels_delayed_passive_reply(self):
         runtime, manager = await self.runtime(
@@ -303,6 +384,30 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         self.send(manager, "native-passive")
         await asyncio.sleep(0.03)
         self.assertEqual(len(self.calls), 1)
+
+    async def test_octop_binds_enabled_decision_model_to_plugin(self):
+        from types import SimpleNamespace
+        from octop.infra.gateway.gateway import Gateway
+        from octop_harness.plugins.loader import load_plugin_dir, unload_plugin
+
+        if not hasattr(Gateway, "_decision_scorer_for_plugin"):
+            self.skipTest("requires host decision-model bridge")
+        from octop_harness.decision.config import DecisionConfig
+
+        loaded = load_plugin_dir(Path(__file__).resolve().parents[1], install_deps=False)
+        runtime, manager = await self.runtime(dryRun=True, defaults={"mode": "smart", "replyProbability": 1})
+        loaded.inbound = [runtime]
+        gateway = Gateway.__new__(Gateway)
+        config = DecisionConfig(enabled=True, provider="custom", endpoint="https://example.test")
+        gateway._agent_manager = SimpleNamespace(decision=SimpleNamespace(harness_config=lambda: config))
+        manager._inbound_handler = gateway._plugin_inbound
+        with patch("octop_harness.decision.client.HttpDecisionClient.score_async", new_callable=AsyncMock) as scorer:
+            scorer.return_value = {"participate": 0.95}
+            self.send(manager, "host-decision", content="普通聊天")
+            await wait_for(lambda: any(r["reasonCode"] == "dry_run_would_trigger" for r in runtime.recent))
+            scorer.assert_awaited_once()
+            self.assertEqual(self.calls, [])
+        self.assertTrue(unload_plugin("octop-social-trigger"))
 
     async def test_native_loader_registers_and_unloads_hook(self):
         from octop.infra.gateway import plugin_channels

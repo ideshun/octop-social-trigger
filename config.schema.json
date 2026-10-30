@@ -34,6 +34,22 @@
           "minimum": 0,
           "maximum": 1
         },
+        "decisionModelEnabled": {
+          "default": true,
+          "type": "boolean"
+        },
+        "decisionModelTimeoutMs": {
+          "default": 1800,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3000
+        },
+        "decisionModelMaxCallsPerDay": {
+          "default": 100,
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100000
+        },
         "cooldownSeconds": {
           "default": 180,
           "type": "integer",

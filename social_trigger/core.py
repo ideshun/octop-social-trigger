@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import random
 import re
 import sqlite3
@@ -77,6 +78,7 @@ class Engine:
                 CREATE TABLE IF NOT EXISTS replies (id TEXT PRIMARY KEY, scope TEXT NOT NULL, at REAL NOT NULL, status TEXT NOT NULL);
                 CREATE INDEX IF NOT EXISTS replies_scope ON replies(scope,at);
                 CREATE TABLE IF NOT EXISTS streak (scope TEXT PRIMARY KEY, count INTEGER NOT NULL, last_sent REAL NOT NULL);
+                CREATE TABLE IF NOT EXISTS classifier_calls (day TEXT PRIMARY KEY, count INTEGER NOT NULL);
             """)
 
     @contextmanager
@@ -112,7 +114,22 @@ class Engine:
             db.commit()
             return inserted == 1
 
-    def evaluate(self, m: Message, *, context=()) -> Decision:
+    def reserve_classifier_call(self, limit):
+        if limit <= 0:
+            return False
+        day = datetime.fromtimestamp(self.clock(), ZoneInfo(self.config["timezone"])).date().isoformat()
+        with self._connect() as db:
+            db.execute("PRAGMA busy_timeout=100")
+            db.execute("BEGIN IMMEDIATE")
+            row = db.execute("SELECT count FROM classifier_calls WHERE day=?", (day,)).fetchone()
+            if row and row[0] >= limit:
+                db.commit()
+                return False
+            db.execute("INSERT INTO classifier_calls VALUES (?,1) ON CONFLICT(day) DO UPDATE SET count=count+1", (day,))
+            db.commit()
+            return True
+
+    def evaluate(self, m: Message, *, context=(), model_score=None, preflight=False) -> Decision:
         # The host remains responsible for its normal routing of mentions,
         # commands, and direct messages. Never block those paths here.
         if not m.isGroup or m.isCommand or m.text.lstrip().startswith("/"):
@@ -121,6 +138,8 @@ class Engine:
             return Decision("pass", "plugin_disabled")
         try:
             policy, _ = effective(self.config, m.platform, m.channelInstanceId, m.groupId, m.agentId)
+            if preflight and policy["mode"] != "smart":
+                return Decision("pass", "decision_unneeded")
             if policy["mode"] == "disabled":
                 return Decision("pass", "policy_disabled")
             if m.isBotMessage:
@@ -143,11 +162,11 @@ class Engine:
                 return Decision("skip", "group_not_allowed")
             if m.visibilityGranted != "all":
                 return Decision("skip", "permission_downgraded")
-            return self._evaluate(m, policy, context)
+            return self._evaluate(m, policy, context, model_score, preflight)
         except (sqlite3.Error, ValueError, OverflowError):
             return Decision("pass" if m.isMentioned else "skip", "evaluation_failed")
 
-    def _evaluate(self, m, p, context):
+    def _evaluate(self, m, p, context, model_score, preflight):
         now = self.clock()
         scope, native_id = self._identity(m)
         fallback = not m.messageId
@@ -159,12 +178,13 @@ class Engine:
 
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            db.execute("DELETE FROM seen WHERE at < ?", (now - 86400,))
-            db.execute("DELETE FROM replies WHERE status='sent' AND at < ?", (now - 259200,))
-            if db.execute("SELECT 1 FROM seen WHERE scope=? AND id=?", (scope, native_id)).fetchone():
+            if not preflight:
+                db.execute("DELETE FROM seen WHERE at < ?", (now - 86400,))
+                db.execute("DELETE FROM replies WHERE status='sent' AND at < ?", (now - 259200,))
+            if db.execute("SELECT 1 FROM seen WHERE scope=? AND id=? AND at>=?", (scope, native_id, now - 86400)).fetchone():
                 db.commit()
                 return result("skip", "duplicate")
-            if not dry:
+            if not dry and not preflight:
                 db.execute("INSERT INTO seen VALUES (?,?,?)", (scope, native_id, now))
             if p["mode"] == "mention_only":
                 db.commit()
@@ -215,11 +235,15 @@ class Engine:
                 return result("skip", "bot_reply_ratio")
             prior = db.execute("SELECT count,last_sent FROM streak WHERE scope=?", (scope,)).fetchone()
             if prior and m.receivedAt > prior[1]:
-                db.execute("UPDATE streak SET count=0 WHERE scope=?", (scope,))
+                if not preflight:
+                    db.execute("UPDATE streak SET count=0 WHERE scope=?", (scope,))
             elif prior and prior[0] >= p["maxConsecutiveReplies"]:
                 db.commit()
                 return result("skip", "consecutive_limit")
             if p["mode"] == "smart":
+                if preflight:
+                    db.rollback()
+                    return result("classify", "decision_candidate")
                 # Conservative, explainable signals; no classifier or persona assumptions.
                 terms = set(re.findall(r"[a-z0-9]{2,}|[\u4e00-\u9fff]{2}", m.text.lower()))
                 recent = [
@@ -242,6 +266,8 @@ class Engine:
                     + (0.35 if overlap else 0)
                     + (0.15 if hot else 0),
                 )
+                if type(model_score) in (int, float) and math.isfinite(model_score) and 0 <= model_score <= 1:
+                    score = float(model_score)
                 if score < p["smartScoreThreshold"]:
                     db.commit()
                     return result("skip", "score_below_threshold", evaluatedScore=score)

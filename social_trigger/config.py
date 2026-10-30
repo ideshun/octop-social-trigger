@@ -13,6 +13,9 @@ DEFAULTS = {
     "visibilityRequired": "all",
     "replyProbability": 0.25,
     "smartScoreThreshold": 0.7,
+    "decisionModelEnabled": True,
+    "decisionModelTimeoutMs": 1800,
+    "decisionModelMaxCallsPerDay": 100,
     "cooldownSeconds": 180,
     "maxPassiveRepliesPerHour": 8,
     "maxPassiveRepliesPerDay": 30,
@@ -43,6 +46,8 @@ MODES = {"disabled", "mention_only", "smart", "probability", "always"}
 RANGES = {
     "replyProbability": (0, 1),
     "smartScoreThreshold": (0, 1),
+    "decisionModelTimeoutMs": (0, 3000),
+    "decisionModelMaxCallsPerDay": (0, 100000),
     "maxBotReplyRatio": (0, 1),
     "cooldownSeconds": (0, 86400),
     "maxPassiveRepliesPerHour": (0, 10000),
@@ -84,7 +89,7 @@ def _policy(value, where):
             raise ValueError(f"{where}.mode: invalid mode")
         elif key == "visibilityRequired" and val != "all":
             raise ValueError(f"{where}.visibilityRequired: only all is supported")
-        elif key == "mentionBypassCooldown" and type(val) is not bool:
+        elif key in ("mentionBypassCooldown", "decisionModelEnabled") and type(val) is not bool:
             raise ValueError(f"{where}.{key}: expected boolean")
         elif key in ("quietHours", "classifier"):
             allowed = DEFAULTS[key]
