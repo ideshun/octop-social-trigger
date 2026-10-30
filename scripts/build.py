@@ -115,9 +115,9 @@ def main():
     files += list((ROOT / "social_trigger").glob("*.py"))
     files += list((ROOT / "docs").glob("*.md"))
     files += list((ROOT / "patches").glob("*"))
-    plugin = dist / "octop-social-trigger-0.1.0.zip"
+    plugin = dist / "octop-social-trigger-0.1.1.zip"
     archive(plugin, files, "octop-social-trigger")
-    patch = dist / "octop-social-trigger-host-patches-0.1.0.zip"
+    patch = dist / "octop-social-trigger-host-patches-0.1.1.zip"
     archive(patch, list((ROOT / "patches").glob("*")), "octop-social-trigger-host-patches")
     (dist / "SHA256SUMS").write_text(
         "".join(hashlib.sha256(p.read_bytes()).hexdigest() + "  " + p.name + "\n" for p in (plugin, patch))

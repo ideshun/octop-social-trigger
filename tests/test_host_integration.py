@@ -228,6 +228,15 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         await wait_for(lambda: len(self.calls) == 1)
         self.assertEqual(runtime.recent[-1]["reasonCode"], "channel_disabled")
 
+    @unittest.skipUnless(SUPPORTED and hasattr(QQChannel, "plugin_group_settings"), "requires plugin group settings")
+    async def test_declared_channel_setting_controls_plugin(self):
+        self.channel._config.plugin_group_settings = {"social_trigger_enabled": False}
+        self.channel.group_context_manager._config.activation = "always"
+        runtime, manager = await self.runtime()
+        self.send(manager, "registered-channel-disabled")
+        await wait_for(lambda: len(self.calls) == 1)
+        self.assertEqual(runtime.recent[-1]["reasonCode"], "channel_disabled")
+
     async def test_bot_mentions_cannot_start_reply_loops(self):
         runtime, manager = await self.runtime()
         self.send(manager, "bot-at", bot=True, mentioned=True)
@@ -296,6 +305,7 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(self.calls), 1)
 
     async def test_native_loader_registers_and_unloads_hook(self):
+        from octop.infra.gateway import plugin_channels
         from octop_harness.plugins.loader import load_plugin_dir, unload_plugin
         from octop_harness.plugins.registry import PluginRegistry
 
@@ -304,7 +314,13 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(loaded.manifest.kind, "hook")
         self.assertEqual(len(loaded.inbound), 1)
         self.assertIs(PluginRegistry().all_inbound()[-1], loaded.inbound[0])
+        get_settings = getattr(plugin_channels, "plugin_channel_settings", None)
+        if get_settings:
+            fields = get_settings(PluginRegistry())
+            self.assertTrue(any(field["plugin_id"] == "octop-social-trigger" and field["name"] == "social_trigger_enabled" for field in fields))
         self.assertTrue(unload_plugin("octop-social-trigger"))
+        if get_settings:
+            self.assertFalse(any(field["plugin_id"] == "octop-social-trigger" for field in get_settings(PluginRegistry())))
         self.assertTrue(loaded.inbound[0]._closed)
 
 

@@ -1,4 +1,4 @@
-# QQ 群聊自动参与 0.1.0
+# QQ 群聊自动参与 0.1.1
 
 让机器人根据设定的规则，选择是否参与 QQ 群里的普通聊天，而不是回复每一条消息。群成员 @ 机器人或发送命令时，仍使用 Octop 原来的处理方式。
 
@@ -31,7 +31,7 @@ python scripts/verify_compatibility.py --repos-root /path/to/clean/repositories
 
 兼容性脚本要求指向未应用补丁的基线源码，在临时目录复制三个宿主源码包，核对补丁基线、应用补丁、运行离线集成/回归、测试原生 ZIP 安装器；不修改宿主工作树、运行实例或频道配置。独立 `unittest` 在未打宿主补丁时会明确跳过接入测试，不能用跳过结果声称通过端到端验收。
 
-安装和回退见 [安装文档](docs/install.md)、[回滚文档](docs/rollback.md)。产物为 `dist/octop-social-trigger-0.1.0.zip`，宿主补丁单独打包，校验值在 `dist/SHA256SUMS`。
+安装和回退见 [安装文档](docs/install.md)、[回滚文档](docs/rollback.md)。产物为 `dist/octop-social-trigger-0.1.1.zip`，宿主补丁单独打包，校验值在 `dist/SHA256SUMS`。
 
 ## 配置语义
 

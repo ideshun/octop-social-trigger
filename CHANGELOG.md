@@ -1,3 +1,7 @@
+# 0.1.1 — 2026-10-30
+
+- 由插件声明 QQ 通道群聊参与开关；支持该声明的宿主仅在插件加载时显示开关。
+
 # 0.1.0 — 2026-10-29
 
 - Native hook entry with an explicit inbound-v1 host compatibility contract.

@@ -19,6 +19,20 @@ logger = logging.getLogger("octop.plugins.social_trigger")
 
 
 class Runtime:
+    # The host exposes these fields only while this inbound handler is loaded.
+    channel_settings = ({
+        "channel_kind": "qq",
+        "section": "group_context",
+        "name": "social_trigger_enabled",
+        "type": "switch",
+        "default": True,
+        "label": {"zh": "允许 QQ 群聊自动参与", "en": "Allow automatic QQ group participation"},
+        "help": {
+            "zh": "允许此通道使用群聊自动参与插件；还需在插件设置中启用参与并配置群、概率和试运行。关闭后按通道原有回复触发方式处理。",
+            "en": "Allow this channel to use the group participation plugin. Enable it and configure groups, probability and trial mode in plugin settings. When off, the normal channel reply policy applies.",
+        },
+    },)
+
     def __init__(self, config, database, *, clock=time.time, config_path=None):
         self.config = config
         self.database = Path(database)
@@ -147,7 +161,11 @@ class Runtime:
         if not (meta.get("chat_type") == "group" or (subject and subject.chat_type == "group")):
             return False
         key = self._key(inbound)
-        if inbound.channel_type == "qq" and not getattr(channel, "social_trigger_enabled", True):
+        channel_settings = getattr(channel, "plugin_group_settings", {})
+        channel_enabled = getattr(channel, "social_trigger_enabled", True)
+        if isinstance(channel_settings, dict):
+            channel_enabled = channel_settings.get("social_trigger_enabled", channel_enabled)
+        if inbound.channel_type == "qq" and not channel_enabled:
             self._clear(key)
             self._log("channel_disabled")
             return False
