@@ -2,7 +2,7 @@
 
 让 Octop 根据群聊内容和回复频率，选择性回复 QQ 普通群消息。机器人被 @ 或收到命令时，仍走 Octop 原有处理流程。
 
-[最新发布：v0.1.2](https://github.com/ideshun/octop-social-trigger/releases/tag/v0.1.2) · [安装包](https://github.com/ideshun/octop-social-trigger/releases/download/v0.1.2/octop-social-trigger-0.1.2.zip) · [校验文件](https://github.com/ideshun/octop-social-trigger/releases/download/v0.1.2/SHA256SUMS)
+[最新发布：v0.1.3](https://github.com/ideshun/octop-social-trigger/releases/tag/v0.1.3) · [安装包](https://github.com/ideshun/octop-social-trigger/releases/download/v0.1.3/octop-social-trigger-0.1.3.zip) · [校验文件](https://github.com/ideshun/octop-social-trigger/releases/download/v0.1.3/SHA256SUMS)
 
 ## 环境要求
 
@@ -14,12 +14,12 @@
 
 ### 通过 Octop 管理页面安装
 
-推荐使用 v0.1.2 固定版本，避免安装到未经验证的开发分支。
+推荐使用 v0.1.3 固定版本，避免安装到未经验证的开发分支。
 
 1. 打开 **管理 → 插件 → 安装**。
 2. 选择一种安装方式：
-   - **输入 URL**：粘贴 `https://github.com/ideshun/octop-social-trigger/releases/download/v0.1.2/octop-social-trigger-0.1.2.zip` 并安装。
-   - **上传 ZIP**：从[发布页](https://github.com/ideshun/octop-social-trigger/releases/tag/v0.1.2)下载 `octop-social-trigger-0.1.2.zip`，然后上传。
+   - **输入 URL**：粘贴 `https://github.com/ideshun/octop-social-trigger/releases/download/v0.1.3/octop-social-trigger-0.1.3.zip` 并安装。
+   - **上传 ZIP**：从[发布页](https://github.com/ideshun/octop-social-trigger/releases/tag/v0.1.3)下载 `octop-social-trigger-0.1.3.zip`，然后上传。
 3. 安装完成后，在插件列表中启用「QQ 群聊自动参与」。升级同 ID 插件时，按界面提示确认覆盖。
 
 ### 命令行安装或更新
@@ -28,10 +28,10 @@
 
 ```sh
 # 首次安装
-octop plugin install https://github.com/ideshun/octop-social-trigger/releases/download/v0.1.2/octop-social-trigger-0.1.2.zip
+octop plugin install https://github.com/ideshun/octop-social-trigger/releases/download/v0.1.3/octop-social-trigger-0.1.3.zip
 
 # 更新已安装的插件
-octop plugin install https://github.com/ideshun/octop-social-trigger/releases/download/v0.1.2/octop-social-trigger-0.1.2.zip --force
+octop plugin install https://github.com/ideshun/octop-social-trigger/releases/download/v0.1.3/octop-social-trigger-0.1.3.zip --force
 ```
 
 安装后，使用管理页面中的「重载」让正在运行的 Octop 加载新版本，或重启 Octop 服务。`octop plugin reload` 只重载该 CLI 进程，不会替正在运行的服务重载插件。配置和 SQLite 状态保存在 `$OCTOP_HOME/plugin-state/octop-social-trigger/`，升级会保留这些数据。

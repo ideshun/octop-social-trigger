@@ -9,8 +9,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import tomllib
 
 ROOT = Path(__file__).resolve().parents[1]
+VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
 
 
 def main():
@@ -99,14 +101,14 @@ def main():
             cwd=repos["octop"],
         )
         # Actual native archive installer, isolated from ~/.octop and all live channels.
-        smoke = """import tempfile
+        smoke = f"""import tempfile
 from pathlib import Path
 from octop.infra.agents.plugins.manager import PluginManager
 from octop_harness.plugins.loader import unload_plugin
 with tempfile.TemporaryDirectory() as temp:
     root=Path(temp)
     mgr=PluginManager(plugins_dir=root/'plugins',config_path=root/'config.json')
-    loaded=mgr.install_archive(Path('dist/octop-social-trigger-0.1.2.zip'))
+    loaded=mgr.install_archive(Path('dist/octop-social-trigger-{VERSION}.zip'))
     assert loaded.manifest.id=='octop-social-trigger' and len(loaded.inbound)==1
     assert not loaded.inbound[0].config['enabled']
     assert unload_plugin('octop-social-trigger')

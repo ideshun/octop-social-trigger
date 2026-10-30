@@ -1,3 +1,8 @@
+# 0.1.3 — 2026-10-30
+
+- Added a QQ group icon and included it in the install package.
+- Raised default passive reply limits to 58 per hour and 580 per day.
+
 # 0.1.2 — 2026-10-30
 
 - 智能模式可使用 Octop 决策模型，默认启用；服务关闭、出错、超时或达每日调用上限时回退本地规则。

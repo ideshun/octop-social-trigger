@@ -4,11 +4,11 @@
 
 完整功能需要 Octop 提供入站插件接口、QQ 群聊设置接口和决策模型注入接口。推荐使用 [ideshun/Octop 的 `develop`](https://github.com/ideshun/Octop/tree/develop)，至少包含提交 [`dd9dcce8`](https://github.com/ideshun/Octop/commit/dd9dcce8ada359e97d274e0d0c70094a9b908876) 中的插件设置与决策模型接入。
 
-直接安装 ZIP 不会修改 Octop 宿主。腾讯上游或其他旧版本需要按 `patches/baseline.json` 指定的代码基线应用入站补丁，并按需构建设置界面；决策模型接入还要包含上述宿主接口。`dist/octop-social-trigger-host-patches-0.1.2.zip` 不包含全部较新的宿主联动，不能单独保证完整功能。先检查 [兼容性说明](compatibility.md)，不要把补丁套到不匹配的源码版本。
+直接安装 ZIP 不会修改 Octop 宿主。腾讯上游或其他旧版本需要按 `patches/baseline.json` 指定的代码基线应用入站补丁，并按需构建设置界面；决策模型接入还要包含上述宿主接口。`dist/octop-social-trigger-host-patches-0.1.3.zip` 不包含全部较新的宿主联动，不能单独保证完整功能。先检查 [兼容性说明](compatibility.md)，不要把补丁套到不匹配的源码版本。
 
-## 安装 v0.1.2
+## 安装 v0.1.3
 
-固定版本的发布包：[`octop-social-trigger-0.1.2.zip`](https://github.com/ideshun/octop-social-trigger/releases/download/v0.1.2/octop-social-trigger-0.1.2.zip)，SHA-256：`616a929f537de9d7361ffd3fa6bbfcd7c67e2174d9c629d3ad6fca8240ed6019`。
+固定版本的发布包：[`octop-social-trigger-0.1.3.zip`](https://github.com/ideshun/octop-social-trigger/releases/download/v0.1.3/octop-social-trigger-0.1.3.zip)，SHA-256 校验值见发布页提供的 `SHA256SUMS` 文件。
 
 **管理页面**：打开 **管理 → 插件 → 安装**，粘贴上面的 ZIP 下载地址，或先下载 ZIP 再上传。安装完成后启用「QQ 群聊自动参与」插件。
 
@@ -16,10 +16,10 @@
 
 ```sh
 # 首次安装
-octop plugin install https://github.com/ideshun/octop-social-trigger/releases/download/v0.1.2/octop-social-trigger-0.1.2.zip
+octop plugin install https://github.com/ideshun/octop-social-trigger/releases/download/v0.1.3/octop-social-trigger-0.1.3.zip
 
 # 覆盖已安装版本
-octop plugin install https://github.com/ideshun/octop-social-trigger/releases/download/v0.1.2/octop-social-trigger-0.1.2.zip --force
+octop plugin install https://github.com/ideshun/octop-social-trigger/releases/download/v0.1.3/octop-social-trigger-0.1.3.zip --force
 ```
 
 命令也可安装本地插件目录，但不接受本地 ZIP 文件路径。安装目录应在 Octop 服务使用的运行环境中操作。

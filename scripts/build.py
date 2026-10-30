@@ -3,12 +3,15 @@
 from pathlib import Path
 import hashlib
 import json
+import tomllib
 import zipfile
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from social_trigger.config import DEFAULTS, MODES, RANGES, validate  # noqa: E402
+
+VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
 
 
 def schema():
@@ -104,6 +107,7 @@ def main():
         for name in (
             "main.py",
             "plugin.yaml",
+            "icon.png",
             "config.json",
             "config.example.json",
             "config.schema.json",
@@ -115,9 +119,9 @@ def main():
     files += list((ROOT / "social_trigger").glob("*.py"))
     files += list((ROOT / "docs").glob("*.md"))
     files += list((ROOT / "patches").glob("*"))
-    plugin = dist / "octop-social-trigger-0.1.2.zip"
+    plugin = dist / f"octop-social-trigger-{VERSION}.zip"
     archive(plugin, files, "octop-social-trigger")
-    patch = dist / "octop-social-trigger-host-patches-0.1.2.zip"
+    patch = dist / f"octop-social-trigger-host-patches-{VERSION}.zip"
     archive(patch, list((ROOT / "patches").glob("*")), "octop-social-trigger-host-patches")
     (dist / "SHA256SUMS").write_text(
         "".join(hashlib.sha256(p.read_bytes()).hexdigest() + "  " + p.name + "\n" for p in (plugin, patch))
