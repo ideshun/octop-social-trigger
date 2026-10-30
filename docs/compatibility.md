@@ -10,7 +10,7 @@
 
 标准宿主没有本插件需要的 pre-agent 注册接口。本版提供 `gateway-inbound-v1.patch`、`harness-inbound-v1.patch`、`octop-inbound-v1.patch`，分别实现前置续处理/发送回执、注册与卸载、运行实例桥接。它们是单独的源码补丁，不是既有 `ctx.middleware()` 的行为，也没有 monkey-patch 私有方法。当前未创建或发布上游 PR。
 
-自动化测试先在隔离副本应用补丁，并用真实 `PluginManager.install_archive` 在临时目录验证安装。此前版本已在本机测试实例完成一次 QQ 群真实回复验收；本工作区的新通道开关尚未在真实 QQ 群联调。通过本机测试不代表兼容其他版本或其他部署。
+自动化测试先在隔离副本应用补丁，并用真实 `PluginManager.install_archive` 在临时目录验证安装。0.1.2 的 Octop 通道设置和决策模型接入已在当前 Fork 自动化验证，并部署到本机 Octop 检查服务健康及管理界面。此次没有对该版本发送新的 QQ 群测试消息；此前的真实回复验收针对旧版插件。通过本机测试不代表兼容其他版本或其他部署。
 
 ## 已验证的边界
 
@@ -25,4 +25,4 @@ QQ 全量消息依赖群主使用最新版移动 QQ 设置接收范围；Octop �
 
 v1 的输入/发送链资格限定 QQ 群普通文本，要求可靠的 `author.bot`。未知机器人身份、群可见性或稳定 Agent ID 时跳过非 @。QQ 回复窗口、App 权限、频率和平台审核仍由官方通道执行，不能保证平台允许所有已接收事件的回复。
 
-常用设置由单独的 Octop Dashboard 兼容补丁提供；安装时还需应用 `octop-settings-ui-v1.patch` 并构建前端。分类器、其他通道自动参与和冷场主动发言未交付；高级规则仍可使用 JSON 配置。
+常用设置由 Octop Dashboard 兼容改动提供；在未包含该界面的源码基线上还需应用 `octop-settings-ui-v1.patch` 并构建前端。旧 `classifier` 字段不控制 0.1.2 决策模型；其他通道自动参与和冷场主动发言未交付，高级规则仍可使用 JSON 配置。
