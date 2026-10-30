@@ -360,7 +360,7 @@ class Integration(unittest.IsolatedAsyncioTestCase):
     async def test_host_rejects_forced_activation_without_all_visibility(self):
         self.channel.group_context_manager._config.visibility = "auto"
         inbound = self.channel.parse_inbound(self.event("forged"))
-        receipt = await self.channel.handle_inbound(inbound, force_activation=True)
+        receipt = await self.channel.dispatch_inbound(inbound, force_activation=True)
         self.assertFalse(receipt.attempted)
         self.assertEqual(self.calls, [])
 
