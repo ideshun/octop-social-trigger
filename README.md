@@ -2,13 +2,13 @@
 
 让 Octop 根据群聊内容和回复频率，选择性回复普通群消息。机器人被 @ 或收到命令时，仍走 Octop 原有处理流程。
 
-[最新发布：v0.2.0](https://github.com/ideshun/octop-social-trigger/releases/tag/v0.2.0) · [安装包](https://github.com/ideshun/octop-social-trigger/releases/download/v0.2.0/octop-social-trigger-0.2.0.zip) · [校验文件](https://github.com/ideshun/octop-social-trigger/releases/download/v0.2.0/SHA256SUMS)
+[最新发布：v0.3.0](https://github.com/ideshun/octop-social-trigger/releases/tag/v0.3.0) · [安装包](https://github.com/ideshun/octop-social-trigger/releases/download/v0.3.0/octop-social-trigger-0.3.0.zip) · [校验文件](https://github.com/ideshun/octop-social-trigger/releases/download/v0.3.0/SHA256SUMS)
 
-v0.2.0 支持多通道群聊策略和分层配置。安装前请确认 Octop 与 Gateway 使用包含入站策略接口的配套 Fork `develop`；Octo 通道还需 `octop-channel-octo` v1.1.0 或更新兼容版本。配置层级和平台边界见[多通道设置](docs/scoped-settings.md)与[兼容性说明](docs/compatibility.md)。
+v0.3.0 支持多通道群聊策略、分层配置、屏蔽词，以及群聊回复中的静默输出过滤。安装前请确认 Octop 与 Gateway 使用包含入站策略接口的配套 Fork `develop`；Octo 通道还需 `octop-channel-octo` v1.1.0 或更新兼容版本。配置层级和平台边界见[多通道设置](docs/scoped-settings.md)与[兼容性说明](docs/compatibility.md)。
 
 ## 环境要求
 
-- 0.2.0 需要配套的 [Octop Fork `develop`](https://github.com/ideshun/Octop/tree/develop) 和 [Gateway Fork `develop`](https://github.com/ideshun/octop-gateway/tree/develop)，包含分层设置、通道群聊开关和入站策略接口。使用 Octo 时还需 `octop-channel-octo` v1.1.0 或兼容版本。仅安装本插件不会为旧宿主补上缺失接口。
+- 0.3.0 需要配套的 [Octop Fork `develop`](https://github.com/ideshun/Octop/tree/develop) 和 [Gateway Fork `develop`](https://github.com/ideshun/octop-gateway/tree/develop)，包含分层设置、通道群聊开关和入站策略接口。使用 Octo 时还需 `octop-channel-octo` v1.1.0 或兼容版本。仅安装本插件不会为旧宿主补上缺失接口。
 - 决策模型联动需要 Octop 提供评分器接口，见 [Octop Fork 提交 `dd9dcce8`](https://github.com/ideshun/Octop/commit/dd9dcce8ada359e97d274e0d0c70094a9b908876) 或包含相同能力的兼容版本。
 - 对应平台和群聊必须授权并将普通群消息送达 Octop；平台侧权限不由插件配置或绕过。
 - 仅安装插件 ZIP 不会为旧版 Octop 增加宿主接口。旧宿主即使能加载插件，也可能没有通道联动或决策模型设置；接入补丁与版本范围见[安装文档](docs/install.md)和[兼容性说明](docs/compatibility.md)。
@@ -17,12 +17,12 @@ v0.2.0 支持多通道群聊策略和分层配置。安装前请确认 Octop 与
 
 ### 通过 Octop 管理页面安装
 
-推荐使用 v0.2.0 固定版本。
+推荐使用 v0.3.0 固定版本。
 
 1. 打开 **管理 → 插件 → 安装**。
 2. 选择一种安装方式：
-   - **输入 URL**：粘贴 `https://github.com/ideshun/octop-social-trigger/releases/download/v0.2.0/octop-social-trigger-0.2.0.zip` 并安装。
-   - **上传 ZIP**：从[发布页](https://github.com/ideshun/octop-social-trigger/releases/tag/v0.2.0)下载 `octop-social-trigger-0.2.0.zip`，然后上传。
+   - **输入 URL**：粘贴 `https://github.com/ideshun/octop-social-trigger/releases/download/v0.3.0/octop-social-trigger-0.3.0.zip` 并安装。
+   - **上传 ZIP**：从[发布页](https://github.com/ideshun/octop-social-trigger/releases/tag/v0.3.0)下载 `octop-social-trigger-0.3.0.zip`，然后上传。
 3. 安装完成后，在插件列表中启用「群聊自动参与」。升级同 ID 插件时，按界面提示确认覆盖。
 
 ### 命令行安装或更新
@@ -31,10 +31,10 @@ v0.2.0 支持多通道群聊策略和分层配置。安装前请确认 Octop 与
 
 ```sh
 # 首次安装
-octop plugin install https://github.com/ideshun/octop-social-trigger/releases/download/v0.2.0/octop-social-trigger-0.2.0.zip
+octop plugin install https://github.com/ideshun/octop-social-trigger/releases/download/v0.3.0/octop-social-trigger-0.3.0.zip
 
 # 更新已安装的插件
-octop plugin install https://github.com/ideshun/octop-social-trigger/releases/download/v0.2.0/octop-social-trigger-0.2.0.zip --force
+octop plugin install https://github.com/ideshun/octop-social-trigger/releases/download/v0.3.0/octop-social-trigger-0.3.0.zip --force
 ```
 
 安装后，使用管理页面中的「重载」让正在运行的 Octop 加载新版本，或重启 Octop 服务。`octop plugin reload` 只重载该 CLI 进程，不会替正在运行的服务重载插件。配置和 SQLite 状态保存在 `$OCTOP_HOME/plugin-state/octop-social-trigger/`，升级会保留这些数据。
@@ -49,19 +49,63 @@ octop plugin install https://github.com/ideshun/octop-social-trigger/releases/do
 4. 先保持「试运行」开启，并选择「智能选择」或设置参与概率。试运行只记录决策，不调用 Agent 或发送群回复。
 5. 检查决策日志和群范围后，再关闭试运行。关闭后，命中的普通消息会进入 Agent 并可能产生真实 QQ 回复。
 
-新安装时插件默认关闭并处于试运行。常用选项在插件页面配置；高级设置位于 `$OCTOP_HOME/plugin-state/octop-social-trigger/config.json`。插件设置会按所选 QQ 群保存。
+新安装时插件默认关闭并处于试运行。常用选项在插件页面配置；高级设置位于 `$OCTOP_HOME/plugin-state/octop-social-trigger/config.json`。群和专家的设置仅作用于所选范围。
 
 ## 回复策略
 
-- **仅响应 @**：普通群消息交给 Octop 原有路由。
-- **智能选择**：按阈值判断是否参与，再应用参与概率、冷却和回复上限。默认可使用 Octop 的决策模型；模型没有启用、调用失败、超时或达到每日上限时回退到本地规则。
-- **按概率参与**：不进行内容评分，直接按配置的概率抽样。
-- **每条消息参与**：每条符合范围和安全限制的普通消息都进入回复流程。
-- **关闭**：不接管普通群消息。
+以下规则针对**没有 @ 机器人的普通群消息**。插件总开关、通道开关和群范围等前提满足后，才会应用所选参与方式：
 
-决策模型选项默认开启，但只有在智能模式下、且 Octop 全局决策模型已启用并可用时才会调用。插件会把当前消息和最多五条近期群消息发送给 Octop 配置的决策服务，每条最多 500 字；试运行也可能调用该服务。默认超时为 1.8 秒、每天最多 100 次。可按群关闭决策模型，或在高级配置中调整 `decisionModelTimeoutMs` 和 `decisionModelMaxCallsPerDay`。
+| 参与方式 | 普通消息的处理方式 |
+| --- | --- |
+| 按聊天内容选择参与（智能） | 先判断内容相关度；达到门槛后，再按参与概率抽样。 |
+| 按概率参与 | 不做内容评分，对通过其他限制的消息直接按参与概率抽样。 |
+| 每条符合限制的消息都参与 | 不做内容评分和概率抽样；通过其他限制后进入回复流程。 |
+| 仅响应 @ 机器人 | 普通消息不自动参与，@ 消息按下文的原有路径处理。 |
+| 关闭自动参与 | 普通消息不自动参与，@ 消息和命令仍由宿主处理。 |
 
-默认智能阈值为 0.7，默认参与概率为 25%。小时/日限额、冷却、连续回复限制、静默时间、群白名单和黑名单仍会限制被动回复。@ 回复和命令保留宿主原有处理方式。
+### 智能模式：决策模型与相关度门槛
+
+智能模式会先进行频率、安全等前置检查，再判断内容。默认开启「使用 Octop 决策模型」：宿主已配置且模型可用时，插件把当前消息和最多 5 条近期群消息发送给决策服务，每条最多 500 字，取得 0–1 的相关度分数。只有分数**大于或等于**相关度门槛，才进入下一步的概率抽样。这个分数是筛选条件，不是最终的回复概率。
+
+决策模型未启用、未配置、调用失败、超时、返回无效分数或达到调用上限时，插件会改用本地规则评分，不依赖模型也能继续运行。默认等待上限为 1.8 秒；失败后暂缓重试 60 秒。所有群共享每天的模型调用计数，并按当前群的有效调用上限判断；0 表示不调用。试运行也可能调用决策模型，但不会因为自动参与而调用专家或发送回复。
+
+本地规则的分数由以下信号相加，最高为 1.0；某项信号只有在通道和上下文能提供相应信息时才会命中：
+
+| 信号 | 分数 |
+| --- | ---: |
+| 通道标记为回复机器人的消息 | 0.70 |
+| 当前消息包含 `?` 或 `？` | 0.30 |
+| 与近期群消息有关键词重合 | 0.35 |
+| 至少有 2 条近期消息，且当前与近期消息来自至少 2 人 | 0.15 |
+
+例如默认门槛为 70% 时，只有问号的消息得分 30%，不会进入概率抽样；一条同时有问号、关键词重合和多人近期聊天的消息得分 80%，会进入抽样。配置范围按全局、通道类型、通道、群、群内专家依次覆盖；实际生效值以目标群和专家的设置为准。
+
+### 最终参与概率怎么算
+
+假设一条普通消息已经通过群范围、频率、安全检查和消息合并，且后续没有被取消：
+
+- **按概率参与**：进入回复流程的概率就是配置的参与概率 `p`。
+- **智能模式**：分数低于门槛时概率为 0；达到门槛时，进入回复流程的概率为 `p`。
+- **每条符合限制的消息都参与**：不抽样，进入回复流程的概率为 100%。
+- **仅响应 @**或**关闭自动参与**：普通消息的自动参与概率为 0。
+
+例如门槛为 70%、参与概率为 58%：分数 80% 的消息有 58% 的机会进入回复流程；分数 60% 的消息为 0%。**不是** `80% × 58%`，也不是 `70% × 58%`。如果已经进入内容判断的消息中有 40% 达到门槛，在每条消息独立抽样且不考虑后续取消的假设下，平均约 `40% × 58% = 23.2%` 会进入回复流程。40% 是实际消息中通过门槛的比例，不能从门槛值直接推算。
+
+这也不等于群里所有消息的实际回复率。消息可能在合并等待中被新消息替代、受到冷却或额度限制，或者在抽样后因撤回、过期、权限变化、专家选择静默、模型或发送失败而没有发出回复。试运行时实际自动回复数始终为 0。随机抽样是对每次符合条件的决策进行，而不是保证每 100 条消息严格回复固定条数。
+
+### 频率、上下文和 @
+
+普通消息还受静默时段、两次自动回复间隔、每小时和每天的回复上限、机器人回复占比、连续回复限制、去重及待发送任务限制。默认间隔 180 秒、每小时 58 条、每天 580 条；小时上限按最近 1 小时计算，日上限按所设时区的自然日计算，实际值可被群或专家设置覆盖。默认将连续消息合并等待 1.5 秒，再对最新消息判断；通过后再随机等待 1–5 秒发送。
+
+「最多参考的最近消息数」和「群消息有效时间」控制插件的近期消息缓冲。决策模型最多使用其中 5 条；通道的「群聊上下文条数」控制附给专家的群聊背景，不会清除专家原有会话历史，也不直接限定决策模型使用的近期消息数。
+
+人工 @ 和 `/` 命令不参与普通消息的概率抽样，仍受屏蔽词、机器人身份识别、通道权限和宿主命令规则约束。默认 @ 不受自动回复间隔限制；关闭「被 @ 时不受回复间隔限制」后，已纳入且未关闭自动参与的群会用最近一次自动回复检查间隔。关闭插件或通道开关后，通道原有触发规则重新生效。
+
+可在插件设置中打开「管理屏蔽词」：同一输入框可搜索现有词条，也可用逗号、分号分隔批量添加或粘贴词表；点击「添加」或按回车才会加入列表，单纯搜索后关闭不会新增词。支持删除和分页，编辑完成后点击插件的「保存设置」生效。插件和对应通道开关启用时，命中的普通群消息、@ 消息和命令会终止后续通道处理，不再退回原生回复路径，也不交给决策模型或专家；带入本轮的群聊临时历史也会过滤。词表按原有配置范围继承和覆盖，匹配忽略英文字母大小写并统一全角和半角。屏蔽不受试运行或决策模型是否可用影响；日志只记录命中，不记录词或消息。
+
+词表只检查传入的文本和附件名称，不识别图片、音视频或文件正文，也不清理此前保存在专家会话和记忆中的内容；它不是自动内容合规审核。需要避免历史内容再次进入模型时，应另行处理已有会话与记忆。启用屏蔽词需要包含入站过滤接口的配套 Gateway；旧接口不可用时，相关群消息会跳过并提示更新。
+
+启用插件和通道开关后，未纳入参与范围的群会跳过普通消息，人工 @ 和命令仍按通道规则处理。先在群中 @ 机器人，再在插件中选择该群并保存，才会应用全局或通道默认策略。关闭插件或通道开关后，通道原有触发规则重新生效。
 
 ## 常见排查
 
@@ -90,7 +134,7 @@ octop plugin install https://github.com/ideshun/octop-social-trigger/releases/do
 
 配置和状态使用 `$OCTOP_HOME/plugin-state/octop-social-trigger/`，无需另建数据库。日志记录决策原因和哈希去重键，不记录消息原文。消息只会在启用决策模型时发送到所配置的决策服务；宿主自身日志策略不由插件控制。
 
-v0.2.0 对符合接口契约的通道处理普通群文本。插件不会扩大平台授权范围、绕过平台限制或改变宿主命令鉴权。跨主机共享 SQLite、多进程间完整上下文合并和冷场主动发言不在支持范围内。完整设计见[设计文档](docs/octop-social-trigger-design%EF%BC%88Octop%20Social%20Trigger%20%C2%B7%20%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3%20v1.0%EF%BC%89.md)。
+v0.3.0 对符合接口契约的通道处理普通群文本。插件不会扩大平台授权范围、绕过平台限制或改变宿主命令鉴权。跨主机共享 SQLite、多进程间完整上下文合并和冷场主动发言不在支持范围内。完整设计见[设计文档](docs/octop-social-trigger-design%EF%BC%88Octop%20Social%20Trigger%20%C2%B7%20%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3%20v1.0%EF%BC%89.md)。
 
 ## 开发
 

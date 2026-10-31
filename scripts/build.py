@@ -18,7 +18,9 @@ def schema():
     properties = {}
     for key, value in DEFAULTS.items():
         item = {"default": value}
-        if key == "mode":
+        if key == "blockedTerms":
+            item.update(type="array", maxItems=5000, items={"type": "string", "minLength": 1, "maxLength": 100})
+        elif key == "mode":
             item.update(type="string", enum=sorted(MODES))
         elif key == "visibilityRequired":
             item.update(type="string", const="all")

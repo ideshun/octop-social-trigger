@@ -1,6 +1,6 @@
 [project]
 name = "octop-social-trigger"
-version = "0.2.0"
+version = "0.3.0"
 description = "Cross-channel group participation policy for Octop"
 requires-python = ">=3.12"
 license = "MIT"

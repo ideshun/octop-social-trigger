@@ -14,7 +14,9 @@ from pathlib import Path
 
 from .config import DEFAULTS, SCOPES, _diff, _merge, effective, group_allowed, instance_key, validate
 from .core import Engine
+from .input_filter import BlockedTerms
 from .octop import normalize
+from .output import GroupReplyFilter
 
 logger = logging.getLogger("octop.plugins.social_trigger")
 
@@ -181,6 +183,47 @@ class Runtime:
         self.recent.append(record)
         logger.info("%s", json.dumps(record, separators=(",", ":")))
 
+    def _guard_native_reply(self):
+        try:
+            from octop_gateway.channel import current_inbound_receipt
+        except ImportError:
+            self._log("output_guard_unavailable")
+            return False
+        receipt = current_inbound_receipt()
+        if receipt is None or not hasattr(receipt, "text_filter"):
+            self._log("output_guard_unavailable")
+            return False
+        if getattr(receipt, "_social_trigger_guard", False):
+            return True
+        guard = GroupReplyFilter(lambda: self._log("silent_output"))
+        previous = receipt.text_filter
+        if previous is None:
+            receipt.text_filter = guard
+        else:
+            receipt.text_filter = lambda text: guard(previous(text))
+        receipt._social_trigger_guard = True
+        return True
+
+    def _guard_input(self, receipt, terms):
+        if not terms:
+            return True
+        if receipt is None or not hasattr(receipt, "input_filter"):
+            self._log("input_filter_unavailable")
+            return False
+        matcher = BlockedTerms(terms)
+        previous = receipt.input_filter
+
+        def check(message):
+            if previous is not None and previous(message) is not True:
+                return False
+            if not matcher.filter_context(message):
+                self._log("blocked_term")
+                return False
+            return True
+
+        receipt.input_filter = check
+        return True
+
     def settings_for(self, channel_id="", group_id="", agent_id="", *, platform="qq", scope="groupAgents"):
         import copy
 
@@ -261,27 +304,48 @@ class Runtime:
             self._clear(key)
             self._log("channel_disabled")
             return False
-        if not group_allowed(self.config, inbound.channel_type, inbound.channel_id, key[-1]):
-            self._clear(key)
-            return False
+        try:
+            p, _ = effective(self.config, inbound.channel_type, inbound.channel_id, key[-1], inbound.tenant_id or "")
+            terms = p["blockedTerms"]
+            if terms:
+                if BlockedTerms(terms).matches_message(inbound):
+                    self._log("blocked_term")
+                    return True
+                from octop_gateway.channel import current_inbound_receipt
+
+                if not self._guard_input(current_inbound_receipt(), terms):
+                    return True
+        except Exception:
+            self._log("input_filter_unavailable")
+            return True
+        resolver = getattr(channel, "resolve_sender_is_bot", None)
+        if type(meta.get("sender_is_bot")) is not bool and callable(resolver):
+            try:
+                async with asyncio.timeout(3):
+                    meta["sender_is_bot"] = await resolver(inbound)
+            except Exception:
+                meta["sender_is_bot"] = None
+        if meta.get("sender_is_bot") is True:
+            self._log("bot_message")
+            return True
+        allowed = group_allowed(self.config, inbound.channel_type, inbound.channel_id, key[-1])
         if type(meta.get("bot_mentioned")) is not bool:
             self._log("unsupported_channel")
-            return False
-        if meta.get("sender_is_bot") is True and not inbound.text.lstrip().startswith("/"):
-            try:
-                policy, _ = effective(
-                    self.config, inbound.channel_type, inbound.channel_id, key[-1], inbound.tenant_id or ""
-                )
-                if policy["mode"] != "disabled":
-                    self._log("bot_message")
-                    return True
-            except ValueError:
-                return True
+            return not inbound.text.lstrip().startswith("/")
         # Commands and mentions retain the host's authorization and routing.
         if meta.get("bot_mentioned") is True or inbound.text.lstrip().startswith("/"):
             self._clear(key)
             if (
-                self.engine is not None
+                meta.get("bot_mentioned") is True
+                and not inbound.text.lstrip().startswith("/")
+                and callable(resolver)
+                and type(meta.get("sender_is_bot")) is not bool
+            ):
+                self._log("sender_identity_unknown")
+                return True
+            if (
+                allowed
+                and not p["mentionBypassCooldown"]
                 and meta.get("bot_mentioned") is True
                 and not inbound.text.lstrip().startswith("/")
             ):
@@ -292,21 +356,28 @@ class Runtime:
                         visibility_granted="limited",
                         sender_is_bot=meta.get("sender_is_bot") is True,
                     )
-                    decision = await asyncio.to_thread(self.engine.evaluate, msg)
+                    decision = await asyncio.to_thread(self._get_engine().evaluate, msg)
                     if decision.action == "skip":
                         self._log(decision.reasonCode)
                         return True
                 except Exception:
                     pass  # Mentions fail open to the host's existing permissions.
+            if meta.get("bot_mentioned") is True and not inbound.text.lstrip().startswith("/"):
+                if self._guard_native_reply():
+                    meta["social_trigger_output_guard"] = True
             return False
+        if not allowed:
+            self._clear(key)
+            self._log("group_not_allowed")
+            return True
         if not inbound.tenant_id:
             self._log("missing_agent")
             return True
         try:
-            p, _ = effective(self.config, inbound.channel_type, inbound.channel_id, key[-1], inbound.tenant_id)
             if p["mode"] == "disabled":
                 self._clear(key)
-                return False
+                self._log("policy_disabled")
+                return True
             host_policy = channel.group_context_manager.policy_for(inbound)
             if (
                 not host_policy.enabled
@@ -317,16 +388,8 @@ class Runtime:
                 self._log("permission_downgraded")
                 return True
             if type(meta.get("sender_is_bot")) is not bool:
-                resolver = getattr(channel, "resolve_sender_is_bot", None)
-                if callable(resolver):
-                    async with asyncio.timeout(3):
-                        meta["sender_is_bot"] = await resolver(inbound)
-                elif inbound.channel_type != "qq":
-                    self._log("unsupported_channel")
-                    return False
-                if type(meta.get("sender_is_bot")) is not bool:
-                    self._log("sender_identity_unknown")
-                    return True
+                self._log("sender_identity_unknown")
+                return True
             msg = normalize(
                 inbound, agent_id=inbound.tenant_id, visibility_granted="all", sender_is_bot=meta["sender_is_bot"]
             )
@@ -371,12 +434,17 @@ class Runtime:
             task.exception()
 
     async def _run(self, key, channel, dispatch, p):
-        from octop_gateway.channel import InboundReceipt
+        from octop_gateway import channel as gateway_channel
         from octop_gateway.models import GroupContext, GroupContextMessage
 
         reservation = None
-        receipt = InboundReceipt()
+        suppressed_output = False
+        guard_unavailable = False
+        receipt = gateway_channel.InboundReceipt()
         try:
+            if not self._guard_input(receipt, p["blockedTerms"]):
+                guard_unavailable = True
+                return
             await asyncio.sleep(p["debounceMs"] / 1000)
             items = [
                 (m, native)
@@ -429,6 +497,20 @@ class Runtime:
             )
             if decision.action not in ("trigger", "delay"):
                 return
+            if not callable(getattr(gateway_channel, "current_inbound_receipt", None)) or not all(
+                hasattr(receipt, name) for name in ("text_filter", "suppress_thinking")
+            ):
+                guard_unavailable = True
+                self._log("output_guard_unavailable")
+                return
+
+            def note_suppressed():
+                nonlocal suppressed_output
+                suppressed_output = True
+                self._log("silent_output")
+
+            receipt.text_filter = GroupReplyFilter(note_suppressed)
+            receipt.suppress_thinking = True
             await asyncio.sleep(
                 min(decision.delayMs / 1000, max(0, p["contextTtlSeconds"] - (self.clock() - msg.receivedAt)))
             )
@@ -457,6 +539,7 @@ class Runtime:
                     for m, _ in previous
                 ],
             )
+            native.metadata["social_trigger_auto"] = True
             await dispatch(native, activate=True, receipt=receipt)
         except asyncio.CancelledError:
             raise
@@ -472,7 +555,8 @@ class Runtime:
                         self._log("reply_sent", "sent", reservationId=reservation)
                     elif not receipt.attempted:
                         self.engine.finalize(reservation, sent=False)
-                        self._log("reply_cancelled", "skip", reservationId=reservation)
+                        if not suppressed_output and not guard_unavailable:
+                            self._log("reply_cancelled", "skip", reservationId=reservation)
                     else:
                         self._log("delivery_unknown", "skip", reservationId=reservation)
                 except Exception:

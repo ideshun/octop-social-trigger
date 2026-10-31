@@ -70,6 +70,29 @@ async def test_nested_overrides_keep_inherited_values_and_invalid_parent_is_not_
     await runtime.wait_closed()
 
 
+@pytest.mark.asyncio
+async def test_blocked_terms_inherit_override_reset_and_validate(tmp_path):
+    runtime = Runtime(validate({"schemaVersion": 2}), tmp_path / "state.db", config_path=tmp_path / "config.json")
+    await runtime.update_settings(scope="defaults", policy={"blockedTerms": ["global"]})
+    await runtime.update_settings(
+        platform="octo", channel_id="bot", group_id="group", scope="groups", policy={"blockedTerms": ["group"]}
+    )
+    assert effective(runtime.config, "octo", "bot", "group", "expert")[0]["blockedTerms"] == ["group"]
+    assert effective(runtime.config, "qq", "bot", "group", "expert")[0]["blockedTerms"] == ["global"]
+    with pytest.raises(ValueError, match="blockedTerms"):
+        await runtime.update_settings(scope="defaults", policy={"blockedTerms": ["   "]})
+    await runtime.update_settings(platform="octo", channel_id="bot", group_id="group", scope="groups", reset=True)
+    assert effective(runtime.config, "octo", "bot", "group", "expert")[0]["blockedTerms"] == ["global"]
+    await runtime.wait_closed()
+
+
+def test_blocked_term_limit_allows_a_large_list():
+    terms = [f"term-{index}" for index in range(5000)]
+    assert validate({"defaults": {"blockedTerms": terms}})["defaults"]["blockedTerms"] == terms
+    with pytest.raises(ValueError, match="blockedTerms"):
+        validate({"defaults": {"blockedTerms": [*terms, "one-more"]}})
+
+
 def test_legacy_qq_policy_and_allowlist_migrate_without_enabling_other_platforms():
     config = validate({"enabled": True, "groups": {"same": {"same": {"cooldownSeconds": 12}}}})
     assert effective(config, "qq", "same", "same", "expert")[0]["cooldownSeconds"] == 12

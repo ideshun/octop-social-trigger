@@ -121,6 +121,107 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         await wait_for(lambda: any(r["reasonCode"] == "dry_run_would_trigger" for r in runtime.recent))
         self.assertEqual(self.calls, [])
 
+    async def test_blocked_terms_stop_group_messages_before_models_and_filter_history(self):
+        from octop_gateway.models import GroupContext, GroupContextMessage
+
+        runtime, manager = await self.runtime(
+            defaults={
+                "blockedTerms": ["敏感词", "ABC"],
+                "mode": "smart",
+                "smartScoreThreshold": 0,
+                "replyProbability": 1,
+                "maxBotReplyRatio": 1,
+            }
+        )
+        scorer = AsyncMock(return_value={"participate": 1})
+        provider = AsyncMock(return_value=scorer)
+        runtime.bind_decision_scorer(provider)
+        runtime.config["dryRun"] = True
+        self.channel.group_context_manager._config.owner_commands_only = False
+        self.send(manager, "ordinary-blocked", content="含敏感词的普通消息")
+        self.send(manager, "mention-blocked", mentioned=True, content="ａｂｃ")
+        self.send(manager, "command-blocked", content="/status 敏感词")
+        await wait_for(lambda: sum(item["reasonCode"] == "blocked_term" for item in runtime.recent) == 3)
+        self.assertEqual(self.calls, [])
+        provider.assert_not_awaited()
+        runtime.config["dryRun"] = False
+
+        async def add_history(message):
+            message.group_context = GroupContext(
+                conversation_id="group",
+                visibility="all",
+                activation="mention",
+                messages=[
+                    GroupContextMessage(sender_id="one", text="安全历史"),
+                    GroupContextMessage(sender_id="two", text="含敏感词的历史"),
+                ],
+            )
+
+        self.channel._preprocess_inbound = add_history
+        self.send(manager, "safe-mention", mentioned=True, content="安全的消息")
+        await wait_for(lambda: len(self.calls) == 1)
+        self.assertEqual([item.text for item in self.calls[0].group_context.messages], ["安全历史"])
+        provider.assert_not_awaited()
+
+        self.send(manager, "safe-automatic", content="安全的普通消息")
+        await wait_for(lambda: len(self.calls) == 2)
+        scorer.assert_awaited_once()
+        self.assertNotIn("敏感词", scorer.await_args.kwargs["state"])
+        self.assertEqual([item.text for item in self.calls[1].group_context.messages], ["安全历史"])
+
+    async def test_silent_group_output_is_not_sent_for_automatic_or_native_mention(self):
+        async def process(message):
+            self.calls.append(message)
+            if message.metadata.get("social_trigger_auto"):
+                yield MessageEvent.thinking("private reasoning")
+            yield MessageEvent.delta("（不")
+            yield MessageEvent.flush()
+            yield MessageEvent.delta("介入。）")
+            yield MessageEvent.completed()
+
+        self.channel._processor = process
+        self.channel.constraints.show_thinking = True
+        runtime, manager = await self.runtime()
+        self.send(manager, "ordinary")
+        await wait_for(lambda: any(r["reasonCode"] == "silent_output" for r in runtime.recent))
+        await wait_for(lambda: not runtime._tasks)
+        self.channel._send_text.assert_not_awaited()
+        self.assertTrue(self.calls[0].metadata["social_trigger_auto"])
+
+        self.send(manager, "mention", mentioned=True)
+        await wait_for(lambda: sum(r["reasonCode"] == "silent_output" for r in runtime.recent) == 2)
+        self.assertNotIn("social_trigger_auto", self.calls[-1].metadata)
+        self.assertTrue(self.calls[-1].metadata["social_trigger_output_guard"])
+        self.channel._send_text.assert_not_awaited()
+
+        async def normal(message):
+            self.calls.append(message)
+            yield MessageEvent.delta("（推荐")
+            yield MessageEvent.flush()
+            yield MessageEvent.delta("方案 A。）")
+            yield MessageEvent.completed()
+
+        self.channel._processor = normal
+        self.send(manager, "normal-mention", mentioned=True)
+        await wait_for(lambda: self.channel._send_text.await_count == 1)
+        self.assertEqual(self.channel._send_text.await_args.args[1], "（推荐方案 A。）")
+
+    async def test_older_gateway_without_output_guard_skips_automatic_turn(self):
+        class LegacyReceipt:
+            attempted = False
+            delivered = False
+
+        runtime, manager = await self.runtime()
+        with patch("octop_gateway.channel.InboundReceipt", LegacyReceipt):
+            self.send(manager, "ordinary")
+            await wait_for(lambda: any(r["reasonCode"] == "output_guard_unavailable" for r in runtime.recent))
+            await wait_for(lambda: not runtime._tasks)
+            runtime.config["dryRun"] = True
+            self.send(manager, "trial")
+            await wait_for(lambda: any(r["reasonCode"] == "dry_run_would_trigger" for r in runtime.recent))
+        self.assertEqual(self.calls, [])
+        self.channel._send_text.assert_not_awaited()
+
     async def test_decision_model_scores_smart_mode_without_calling_agent_in_dry_run(self):
         scorer = AsyncMock(return_value={"participate": 0.95})
         provider = AsyncMock(return_value=scorer)
@@ -160,6 +261,48 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         await wait_for(lambda: any(r["reasonCode"] == "decision_model_unavailable" for r in runtime.recent))
         await wait_for(lambda: sum(r["reasonCode"] == "score_below_threshold" for r in runtime.recent) >= 2)
         self.assertEqual(self.calls, [])
+
+    async def test_output_guard_and_normal_reply_survive_decision_model_fallback(self):
+        async def process(message):
+            self.calls.append(message)
+            yield MessageEvent.text("正常回答" if len(self.calls) == 4 else "（不回复）")
+            yield MessageEvent.completed()
+
+        self.channel._processor = process
+        runtime, manager = await self.runtime(
+            defaults={
+                "mode": "smart",
+                "decisionModelEnabled": False,
+                "replyProbability": 1,
+                "smartScoreThreshold": 0,
+                "maxBotReplyRatio": 1,
+            }
+        )
+        provider = AsyncMock(return_value=None)
+        runtime.bind_decision_scorer(provider)
+        self.send(manager, "disabled")
+        await wait_for(lambda: sum(r["reasonCode"] == "silent_output" for r in runtime.recent) == 1)
+        await wait_for(lambda: not runtime._tasks)
+        provider.assert_not_awaited()
+
+        runtime.config["defaults"]["decisionModelEnabled"] = True
+        self.send(manager, "unconfigured")
+        await wait_for(lambda: sum(r["reasonCode"] == "silent_output" for r in runtime.recent) == 2)
+        await wait_for(lambda: not runtime._tasks)
+        self.assertEqual(provider.await_count, 1)
+
+        scorer = AsyncMock(side_effect=RuntimeError("unavailable"))
+        provider.return_value = scorer
+        self.send(manager, "failed")
+        await wait_for(lambda: sum(r["reasonCode"] == "silent_output" for r in runtime.recent) == 3)
+        await wait_for(lambda: not runtime._tasks)
+        self.assertTrue(any(r["reasonCode"] == "decision_model_unavailable" for r in runtime.recent))
+
+        self.send(manager, "fallback-normal")
+        await wait_for(lambda: self.channel._send_text.await_count == 1)
+        self.assertEqual(self.channel._send_text.await_args.args[1], "正常回答")
+        self.assertEqual(provider.await_count, 2)
+        scorer.assert_awaited_once()
 
     async def test_decision_model_timeout_falls_back_and_mention_stays_native(self):
         async def slow(**_kwargs):
@@ -212,6 +355,25 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([m.text for m in self.calls], ["mention"])
         with runtime.engine._connect() as db:
             self.assertEqual(db.execute("select count(*) from replies").fetchone()[0], 0)
+
+    async def test_mention_cooldown_is_checked_after_engine_restart(self):
+        runtime, manager = await self.runtime(
+            defaults={"debounceMs": 0, "cooldownSeconds": 180, "mentionBypassCooldown": False}
+        )
+        self.send(manager, "previous-passive")
+        await wait_for(lambda: any(r["reasonCode"] == "reply_sent" for r in runtime.recent))
+        await wait_for(lambda: not runtime._tasks)
+        runtime.engine = None  # A fresh runtime still has the persisted reply reservation.
+        self.send(manager, "first-mention-after-restart", mentioned=True)
+        await wait_for(lambda: any(r["reasonCode"] == "mention_cooldown" for r in runtime.recent))
+        self.assertEqual(len(self.calls), 1)
+
+    async def test_mention_without_previous_reply_still_uses_native_route(self):
+        runtime, manager = await self.runtime(defaults={"mentionBypassCooldown": False})
+        self.send(manager, "first-mention", mentioned=True)
+        await wait_for(lambda: len(self.calls) == 1)
+        self.assertIsNotNone(runtime.engine)
+        self.assertEqual(self.calls[0].text, "first-mention")
 
     async def test_settings_save_cancels_pending_and_applies_to_group(self):
         runtime, manager = await self.runtime(
@@ -302,13 +464,19 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         await wait_for(lambda: len(self.calls) == 2)
         self.assertEqual([m.metadata["conversation_id"] for m in self.calls], ["group", "other-group"])
 
-    async def test_unselected_group_preserves_host_routing(self):
+    async def test_unselected_group_skips_ordinary_but_keeps_mentions_and_commands(self):
         self.channel.group_context_manager._config.activation = "always"
+        self.channel.group_context_manager._config.owner_commands_only = False
         runtime, manager = await self.runtime(allowGroups=[[self.channel.channel_id, "group"]])
         self.send(manager, "outside-scope", group="other-group")
+        await wait_for(lambda: any(r["reasonCode"] == "group_not_allowed" for r in runtime.recent))
+        self.assertEqual(self.calls, [])
+
+        self.send(manager, "mention", group="other-group", mentioned=True)
         await wait_for(lambda: len(self.calls) == 1)
         self.assertEqual(self.calls[0].metadata["conversation_id"], "other-group")
-        self.assertFalse(runtime.recent)
+        self.send(manager, "command", group="other-group", content="/status")
+        await wait_for(lambda: len(self.calls) == 2)
 
     async def test_channel_switch_disables_plugin_and_preserves_native_routing(self):
         self.channel._config.social_trigger_enabled = False
@@ -317,6 +485,15 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         self.send(manager, "channel-disabled")
         await wait_for(lambda: len(self.calls) == 1)
         self.assertEqual(runtime.recent[-1]["reasonCode"], "channel_disabled")
+
+    async def test_disabled_group_policy_blocks_ordinary_messages_even_if_native_is_always(self):
+        self.channel.group_context_manager._config.activation = "always"
+        runtime, manager = await self.runtime(defaults={"mode": "disabled"})
+        self.send(manager, "ordinary")
+        await wait_for(lambda: any(r["reasonCode"] == "policy_disabled" for r in runtime.recent))
+        self.assertEqual(self.calls, [])
+        self.send(manager, "mention", mentioned=True)
+        await wait_for(lambda: len(self.calls) == 1)
 
     @unittest.skipUnless(SUPPORTED and hasattr(QQChannel, "plugin_group_settings"), "requires plugin group settings")
     async def test_declared_channel_setting_controls_plugin(self):

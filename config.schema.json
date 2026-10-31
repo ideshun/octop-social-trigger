@@ -6,6 +6,16 @@
     "policy": {
       "type": "object",
       "properties": {
+        "blockedTerms": {
+          "default": [],
+          "type": "array",
+          "maxItems": 5000,
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
         "mode": {
           "default": "smart",
           "type": "string",

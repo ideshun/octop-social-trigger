@@ -9,6 +9,7 @@ from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 DEFAULTS = {
+    "blockedTerms": [],
     "mode": "smart",
     "visibilityRequired": "all",
     "replyProbability": 0.25,
@@ -130,6 +131,12 @@ def _policy(value, where):
             )
             if isinstance(val, bool) or not isinstance(val, expected) or not lo <= val <= hi:
                 raise ValueError(f"{where}.{key}: expected {lo}..{hi}")
+        elif key == "blockedTerms" and (
+            not isinstance(val, list)
+            or len(val) > 5000
+            or any(not isinstance(term, str) or not term.strip() or len(term) > 100 for term in val)
+        ):
+            raise ValueError(f"{where}.blockedTerms: expected at most 5000 nonempty terms of up to 100 characters")
         elif key == "mode" and (not isinstance(val, str) or val not in MODES):
             raise ValueError(f"{where}.mode: invalid mode")
         elif key == "visibilityRequired" and val != "all":
