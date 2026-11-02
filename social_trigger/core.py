@@ -65,8 +65,8 @@ class Decision:
 class Engine:
     """SQLite serializes decisions across processes sharing one database.
 
-    Pending reservations never expire automatically: the host must explicitly
-    commit or release them to avoid exceeding quotas after crashes.
+    Active reservations remain pending until the host completes them. Unknown
+    deliveries are retained for audit and count conservatively toward limits.
     """
 
     def __init__(self, config, database, *, rng=None, clock=time.time):
@@ -210,7 +210,7 @@ class Engine:
                 db.commit()
                 return result("skip", "quiet_hours")
             rows = db.execute(
-                "SELECT at, status FROM replies WHERE scope=? AND status IN ('pending','sent')", (scope,)
+                "SELECT at, status FROM replies WHERE scope=? AND status IN ('pending','sent','unknown')", (scope,)
             ).fetchall()
             times = [row[0] for row in rows]
             if times and now - max(times) < p["cooldownSeconds"]:
@@ -303,24 +303,38 @@ class Engine:
                 reservationId=reservation,
             )
 
+    def mark_unknown(self, reservation_id: str, *, preserve_time: bool = False):
+        """Release an ended, uncertain attempt without treating it as unsent."""
+        with self._connect() as db:
+            cursor = db.execute(
+                "UPDATE replies SET status='unknown', at=COALESCE(?, at) WHERE id=? AND status='pending'",
+                (None if preserve_time else self.clock(), reservation_id),
+            )
+            return cursor.rowcount == 1
+
     def finalize(self, reservation_id: str, *, sent: bool):
         """Call only after confirmed send; release on cancellation/failure."""
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            row = db.execute("SELECT scope FROM replies WHERE id=? AND status='pending'", (reservation_id,)).fetchone()
+            row = db.execute(
+                "SELECT scope FROM replies WHERE id=? AND status IN ('pending','unknown')", (reservation_id,)
+            ).fetchone()
             if row is None:
                 db.commit()
                 return False
             if sent:
                 now = self.clock()
                 cursor = db.execute(
-                    "UPDATE replies SET status='sent', at=? WHERE id=? AND status='pending'", (now, reservation_id)
+                    "UPDATE replies SET status='sent', at=? WHERE id=? AND status IN ('pending','unknown')",
+                    (now, reservation_id),
                 )
                 db.execute(
                     "INSERT INTO streak VALUES (?,1,?) ON CONFLICT(scope) DO UPDATE SET count=count+1,last_sent=excluded.last_sent",
                     (row[0], now),
                 )
             else:
-                cursor = db.execute("DELETE FROM replies WHERE id=? AND status='pending'", (reservation_id,))
+                cursor = db.execute(
+                    "DELETE FROM replies WHERE id=? AND status IN ('pending','unknown')", (reservation_id,)
+                )
             db.commit()
             return cursor.rowcount == 1

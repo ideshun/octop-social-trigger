@@ -523,6 +523,19 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(runtime._buffers, {})
         self.assertEqual(self.calls, [])
 
+    async def test_expired_message_reports_signed_age_and_effective_ttl(self):
+        runtime, manager = await self.runtime(defaults={"contextTtlSeconds": 10})
+        event = self.event("expired", content="private text")
+        event["d"]["timestamp"] = time.time() - 20
+        manager.enqueue(self.channel.channel_id, event)
+        await wait_for(lambda: any(r["reasonCode"] == "message_expired" for r in runtime.recent))
+        record = next(r for r in runtime.recent if r["reasonCode"] == "message_expired")
+        self.assertGreaterEqual(record["ageSeconds"], 20)
+        self.assertEqual(record["ttlSeconds"], 10)
+        self.assertEqual(len(record["scopeHash"]), 16)
+        self.assertNotIn("private text", json.dumps(record))
+        self.assertEqual(self.calls, [])
+
     async def test_duplicate_platform_delivery_does_not_wake_agent_twice(self):
         runtime, manager = await self.runtime()
         self.send(manager, "same")
@@ -531,17 +544,19 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         await wait_for(lambda: any(r["reasonCode"] == "duplicate" for r in runtime.recent))
         self.assertEqual(len(self.calls), 1)
 
-    async def test_uncertain_delivery_keeps_reservation_and_prevents_retry(self):
-        runtime, manager = await self.runtime()
+    async def test_uncertain_delivery_is_recorded_without_blocking_later_messages(self):
+        runtime, manager = await self.runtime(defaults={"maxBotReplyRatio": 1})
         self.channel._send_text = AsyncMock(side_effect=TimeoutError("offline transport timeout"))
         with self.assertLogs("octop_gateway.channel", level="ERROR"):
             self.send(manager, "unknown")
             await wait_for(lambda: any(r["reasonCode"] == "delivery_unknown" for r in runtime.recent))
+        self.channel._send_text = AsyncMock()
         self.send(manager, "next")
-        await wait_for(lambda: any(r["reasonCode"] == "reply_pending" for r in runtime.recent))
-        self.assertEqual(len(self.calls), 1)
+        await wait_for(lambda: any(r["reasonCode"] == "reply_sent" for r in runtime.recent))
+        self.assertEqual(len(self.calls), 2)
         with runtime.engine._connect() as db:
-            self.assertEqual(db.execute("select count(*) from replies where status='pending'").fetchone()[0], 1)
+            self.assertEqual(db.execute("select count(*) from replies where status='unknown'").fetchone()[0], 1)
+            self.assertEqual(db.execute("select count(*) from replies where status='pending'").fetchone()[0], 0)
 
     async def test_host_rejects_forced_activation_without_all_visibility(self):
         self.channel.group_context_manager._config.visibility = "auto"

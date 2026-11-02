@@ -1,9 +1,13 @@
 import concurrent.futures
+import contextlib
+import io
+import json
 import random
 import multiprocessing
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from social_trigger.config import effective, validate
 from social_trigger.core import Engine, Message
@@ -112,6 +116,42 @@ class Tests(unittest.TestCase):
         self.assertTrue(restarted.finalize(first.reservationId, sent=False))
         self.assertEqual(restarted.evaluate(message(messageId="after-release")).action, "trigger")
 
+    def test_uncertain_delivery_unblocks_scope_but_counts_toward_quota(self):
+        cfg = config(maxPassiveRepliesPerHour=1)
+        engine = Engine(cfg, self.path, clock=lambda: NOW)
+        first = engine.evaluate(message(messageId="first"))
+        self.assertTrue(engine.mark_unknown(first.reservationId))
+        self.assertEqual(engine.evaluate(message(messageId="first")).reasonCode, "duplicate")
+        self.assertEqual(engine.evaluate(message(messageId="second")).reasonCode, "hourly_limit")
+        later = Engine(cfg, self.path, clock=lambda: NOW + 3601)
+        self.assertEqual(later.evaluate(message(messageId="third", receivedAt=NOW + 3601)).action, "trigger")
+        with later._connect() as db:
+            self.assertEqual(
+                db.execute("SELECT status FROM replies WHERE id=?", (first.reservationId,)).fetchone()[0], "unknown"
+            )
+        self.assertTrue(later.finalize(first.reservationId, sent=True))
+        self.assertFalse(later.mark_unknown(first.reservationId))
+
+    def test_operator_can_preserve_an_abandoned_reservation_as_unknown(self):
+        from social_trigger.__main__ import main
+
+        reservation = self.engine.evaluate(message()).reservationId
+        config_path = Path(self.temp.name) / "config.json"
+        config_path.write_text(json.dumps({"enabled": True, "dryRun": False}), encoding="utf-8")
+        output = io.StringIO()
+        args = ["social_trigger", "resolve", str(config_path), str(self.path), reservation, "--outcome", "unknown"]
+        with patch("sys.argv", args), contextlib.redirect_stdout(output):
+            self.assertEqual(main(), 0)
+        self.assertTrue(json.loads(output.getvalue())["resolved"])
+        output = io.StringIO()
+        with patch("sys.argv", ["social_trigger", "status", str(config_path), str(self.path)]):
+            with contextlib.redirect_stdout(output):
+                self.assertEqual(main(), 0)
+        status = json.loads(output.getvalue())
+        self.assertEqual(status["pending"], [])
+        self.assertEqual(status["unknown"][0]["reservationId"], reservation)
+        self.assertEqual(status["unknown"][0]["at"], NOW)
+
     def test_day_quota_and_reservation_release(self):
         cfg = config(maxPassiveRepliesPerDay=1)
         engine = Engine(cfg, self.path, clock=lambda: NOW)
@@ -173,10 +213,18 @@ class Tests(unittest.TestCase):
         blocked = Engine(config(mode="smart", maxPassiveRepliesPerHour=0), self.path, clock=lambda: NOW)
         self.assertEqual(blocked.evaluate(message(messageId="blocked"), preflight=True).reasonCode, "hourly_limit")
         fallback = Engine(cfg, self.path, clock=lambda: NOW)
-        self.assertEqual(fallback.evaluate(message(messageId="fallback"), model_score=float("nan")).reasonCode, "score_below_threshold")
-        self.assertEqual(fallback.evaluate(message(messageId="model-low", isReplyToBot=True), model_score=0.1).reasonCode, "score_below_threshold")
+        self.assertEqual(
+            fallback.evaluate(message(messageId="fallback"), model_score=float("nan")).reasonCode,
+            "score_below_threshold",
+        )
+        self.assertEqual(
+            fallback.evaluate(message(messageId="model-low", isReplyToBot=True), model_score=0.1).reasonCode,
+            "score_below_threshold",
+        )
         probability = Engine(config(mode="smart", replyProbability=0, maxBotReplyRatio=1), self.path, clock=lambda: NOW)
-        self.assertEqual(probability.evaluate(message(messageId="probability"), model_score=0.9).reasonCode, "probability")
+        self.assertEqual(
+            probability.evaluate(message(messageId="probability"), model_score=0.9).reasonCode, "probability"
+        )
 
     def test_decision_call_budget_is_atomic(self):
         with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:

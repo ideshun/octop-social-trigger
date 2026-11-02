@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 import math
@@ -396,8 +397,15 @@ class Runtime:
             if msg.isBotMessage or not msg.text.strip() or inbound.has_media:
                 self._log("bot_or_non_text")
                 return True
-            if abs(self.clock() - msg.receivedAt) > p["contextTtlSeconds"]:
-                self._log("message_expired")
+            age = self.clock() - msg.receivedAt
+            if abs(age) > p["contextTtlSeconds"]:
+                scope, _ = Engine._identity(msg)
+                self._log(
+                    "message_expired",
+                    ageSeconds=round(age, 3),
+                    ttlSeconds=p["contextTtlSeconds"],
+                    scopeHash=hashlib.sha256(scope.encode()).hexdigest()[:16],
+                )
                 return True
             lock = self._locks.setdefault(key, asyncio.Lock())
             async with lock:
@@ -549,7 +557,6 @@ class Runtime:
             if reservation:
                 try:
                     # A transport timeout may already have delivered output.
-                    # Keep ambiguous reservations pending; operators explicitly resolve them.
                     if receipt.delivered:
                         self.engine.finalize(reservation, sent=True)
                         self._log("reply_sent", "sent", reservationId=reservation)
@@ -558,6 +565,7 @@ class Runtime:
                         if not suppressed_output and not guard_unavailable:
                             self._log("reply_cancelled", "skip", reservationId=reservation)
                     else:
+                        self.engine.mark_unknown(reservation)
                         self._log("delivery_unknown", "skip", reservationId=reservation)
                 except Exception:
                     self._log("finalize_failed")
