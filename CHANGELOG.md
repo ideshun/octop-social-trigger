@@ -1,3 +1,8 @@
+# 0.3.2 — 2026-11-03
+
+- Skip group messages addressed to other members before decision-model calls, passive context buffering, or expert dispatch.
+- Preserve native replies when the bot is explicitly mentioned; rely on normalized mention metadata supplied by the channel adapter.
+
 # 0.3.1 — 2026-11-02
 
 - 发送结束但结果不明确时保留 unknown 记录并按可能已发送计入频率，避免持续阻塞群聊；提供旧预约的人工恢复入口。

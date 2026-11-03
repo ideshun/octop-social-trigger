@@ -35,6 +35,7 @@ class Message:
     isGroup: bool = True
     visibilityGranted: str = "unknown"
     tenantId: str = ""
+    hasMentions: bool = False
 
     def __post_init__(self):
         for name in ("platform", "channelInstanceId", "groupId", "agentId", "senderId"):
@@ -44,7 +45,7 @@ class Message:
             raise ValueError("messageId, tenantId and text must be strings")
         if type(self.receivedAt) not in (float, int) or not 0 < self.receivedAt < 253402300800:
             raise ValueError("receivedAt: expected Unix timestamp")
-        for name in ("isMentioned", "isReplyToBot", "isBotMessage", "isCommand", "isGroup"):
+        for name in ("isMentioned", "isReplyToBot", "isBotMessage", "isCommand", "isGroup", "hasMentions"):
             if type(getattr(self, name)) is not bool:
                 raise ValueError(f"{name}: expected boolean")
         if self.visibilityGranted not in ("all", "limited", "unknown"):
@@ -165,6 +166,8 @@ class Engine:
                     if row and row[0] is not None and self.clock() - row[0] < policy["cooldownSeconds"]:
                         return Decision("skip", "mention_cooldown")
                 return Decision("pass", "host_route")
+            if m.hasMentions:
+                return Decision("skip", "addressed_to_others")
             if not m.text.strip():
                 return Decision("skip", "empty_text")
             if not group_allowed(self.config, m.platform, m.channelInstanceId, m.groupId):

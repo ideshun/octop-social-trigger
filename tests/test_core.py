@@ -55,6 +55,8 @@ class Tests(unittest.TestCase):
 
     def test_safe_routing_and_visibility(self):
         self.assertEqual(self.engine.evaluate(message(isMentioned=True)).action, "pass")
+        self.assertEqual(self.engine.evaluate(message(hasMentions=True)).reasonCode, "addressed_to_others")
+        self.assertEqual(self.engine.evaluate(message(hasMentions=True, isMentioned=True)).action, "pass")
         self.assertEqual(self.engine.evaluate(message(isCommand=True)).action, "pass")
         self.assertEqual(self.engine.evaluate(message(isGroup=False)).action, "pass")
         self.assertEqual(self.engine.evaluate(message(visibilityGranted="unknown")).reasonCode, "permission_downgraded")

@@ -28,6 +28,7 @@ def normalize(inbound, *, agent_id, visibility_granted, sender_is_bot):
         text=inbound.text,
         receivedAt=inbound.timestamp,
         isMentioned=meta["bot_mentioned"],
+        hasMentions=meta.get("has_mentions") is True,
         isReplyToBot=meta.get("reply_to_bot") is True,
         isBotMessage=sender_is_bot,
         isCommand=inbound.text.lstrip().startswith("/"),

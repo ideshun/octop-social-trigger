@@ -367,6 +367,10 @@ class Runtime:
                 if self._guard_native_reply():
                     meta["social_trigger_output_guard"] = True
             return False
+        if meta.get("has_mentions") is True:
+            self._clear(key)
+            self._log("addressed_to_others")
+            return True
         if not allowed:
             self._clear(key)
             self._log("group_not_allowed")

@@ -544,6 +544,26 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         await wait_for(lambda: any(r["reasonCode"] == "duplicate" for r in runtime.recent))
         self.assertEqual(len(self.calls), 1)
 
+    async def test_qq_other_mentions_do_not_trigger_automatic_participation(self):
+        runtime, manager = await self.runtime()
+        event = self.event("to-other", content="<@another-member> hello")
+        event["d"]["mentions"] = [{"id": "another-member"}]
+        manager.enqueue(self.channel.channel_id, event)
+        await wait_for(lambda: any(r["reasonCode"] == "addressed_to_others" for r in runtime.recent))
+        self.assertEqual(self.calls, [])
+        self.assertEqual(runtime._buffers, {})
+        await self.channel._handle_op(
+            AsyncMock(),
+            0,
+            {"op": 0, "t": "READY", "d": {"session_id": "ready", "user": {"id": "bot-user"}}},
+        )
+        event = self.event("to-self", content="<@self-openid> hello")
+        event["d"]["mentions"] = [{"id": "self-openid", "is_you": True}]
+        manager.enqueue(self.channel.channel_id, event)
+        await wait_for(lambda: len(self.calls) == 1)
+        self.assertFalse(self.calls[0].metadata.get("social_trigger_auto"))
+        self.assertEqual(self.calls[0].text, "hello")
+
     async def test_uncertain_delivery_is_recorded_without_blocking_later_messages(self):
         runtime, manager = await self.runtime(defaults={"maxBotReplyRatio": 1})
         self.channel._send_text = AsyncMock(side_effect=TimeoutError("offline transport timeout"))

@@ -2,13 +2,13 @@
 
 让 Octop 根据群聊内容和回复频率，选择性回复普通群消息。机器人被 @ 或收到命令时，仍走 Octop 原有处理流程。
 
-[最新发布：v0.3.1](https://github.com/ideshun/octop-social-trigger/releases/tag/v0.3.1) · [安装包](https://github.com/ideshun/octop-social-trigger/releases/download/v0.3.1/octop-social-trigger-0.3.1.zip) · [校验文件](https://github.com/ideshun/octop-social-trigger/releases/download/v0.3.1/SHA256SUMS)
+[最新发布：v0.3.2](https://github.com/ideshun/octop-social-trigger/releases/tag/v0.3.2) · [安装包](https://github.com/ideshun/octop-social-trigger/releases/download/v0.3.2/octop-social-trigger-0.3.2.zip) · [校验文件](https://github.com/ideshun/octop-social-trigger/releases/download/v0.3.2/SHA256SUMS)
 
-v0.3.1 支持多通道群聊策略、分层配置、屏蔽词，以及群聊回复中的静默输出过滤。安装前请确认 Octop 与 Gateway 使用包含入站策略接口的配套 Fork `develop`；Octo 通道还需 `octop-channel-octo` v1.1.0 或更新兼容版本。配置层级和平台边界见[多通道设置](docs/scoped-settings.md)与[兼容性说明](docs/compatibility.md)。
+v0.3.2 支持多通道群聊策略、分层配置、屏蔽词，以及群聊回复中的静默输出过滤；群内只 @ 他人的消息会在进入决策模型或专家前过滤。安装前请确认 Octop 与 Gateway 使用提供入站策略及提及对象元数据的配套 Fork `develop`；Octo 通道还需 `octop-channel-octo` v1.1.0 或更新兼容版本。配置层级和平台边界见[多通道设置](docs/scoped-settings.md)与[兼容性说明](docs/compatibility.md)。
 
 ## 环境要求
 
-- 0.3.1 需要配套的 [Octop Fork `develop`](https://github.com/ideshun/Octop/tree/develop) 和 [Gateway Fork `develop`](https://github.com/ideshun/octop-gateway/tree/develop)，包含分层设置、通道群聊开关和入站策略接口。使用 Octo 时还需 `octop-channel-octo` v1.1.0 或兼容版本。仅安装本插件不会为旧宿主补上缺失接口。
+- 0.3.2 需要配套的 [Octop Fork `develop`](https://github.com/ideshun/Octop/tree/develop) 和 [Gateway Fork `develop`](https://github.com/ideshun/octop-gateway/tree/develop)，包含分层设置、通道群聊开关、入站策略及 `has_mentions` 元数据。使用 Octo 时还需 `octop-channel-octo` v1.1.0 或兼容版本。仅安装本插件不会为旧宿主补上缺失接口。
 - 决策模型联动需要 Octop 提供评分器接口，见 [Octop Fork 提交 `dd9dcce8`](https://github.com/ideshun/Octop/commit/dd9dcce8ada359e97d274e0d0c70094a9b908876) 或包含相同能力的兼容版本。
 - 对应平台和群聊必须授权并将普通群消息送达 Octop；平台侧权限不由插件配置或绕过。
 - 仅安装插件 ZIP 不会为旧版 Octop 增加宿主接口。旧宿主即使能加载插件，也可能没有通道联动或决策模型设置；接入补丁与版本范围见[安装文档](docs/install.md)和[兼容性说明](docs/compatibility.md)。
@@ -17,12 +17,12 @@ v0.3.1 支持多通道群聊策略、分层配置、屏蔽词，以及群聊回�
 
 ### 通过 Octop 管理页面安装
 
-推荐使用 v0.3.1 固定版本。
+推荐使用 v0.3.2 固定版本。
 
 1. 打开 **管理 → 插件 → 安装**。
 2. 选择一种安装方式：
-   - **输入 URL**：粘贴 `https://github.com/ideshun/octop-social-trigger/releases/download/v0.3.1/octop-social-trigger-0.3.1.zip` 并安装。
-   - **上传 ZIP**：从[发布页](https://github.com/ideshun/octop-social-trigger/releases/tag/v0.3.1)下载 `octop-social-trigger-0.3.1.zip`，然后上传。
+   - **输入 URL**：粘贴 `https://github.com/ideshun/octop-social-trigger/releases/download/v0.3.2/octop-social-trigger-0.3.2.zip` 并安装。
+   - **上传 ZIP**：从[发布页](https://github.com/ideshun/octop-social-trigger/releases/tag/v0.3.2)下载 `octop-social-trigger-0.3.2.zip`，然后上传。
 3. 安装完成后，在插件列表中启用「群聊自动参与」。升级同 ID 插件时，按界面提示确认覆盖。
 
 ### 命令行安装或更新
@@ -31,10 +31,10 @@ v0.3.1 支持多通道群聊策略、分层配置、屏蔽词，以及群聊回�
 
 ```sh
 # 首次安装
-octop plugin install https://github.com/ideshun/octop-social-trigger/releases/download/v0.3.1/octop-social-trigger-0.3.1.zip
+octop plugin install https://github.com/ideshun/octop-social-trigger/releases/download/v0.3.2/octop-social-trigger-0.3.2.zip
 
 # 更新已安装的插件
-octop plugin install https://github.com/ideshun/octop-social-trigger/releases/download/v0.3.1/octop-social-trigger-0.3.1.zip --force
+octop plugin install https://github.com/ideshun/octop-social-trigger/releases/download/v0.3.2/octop-social-trigger-0.3.2.zip --force
 ```
 
 安装后，使用管理页面中的「重载」让正在运行的 Octop 加载新版本，或重启 Octop 服务。`octop plugin reload` 只重载该 CLI 进程，不会替正在运行的服务重载插件。配置和 SQLite 状态保存在 `$OCTOP_HOME/plugin-state/octop-social-trigger/`，升级会保留这些数据。
@@ -101,6 +101,8 @@ octop plugin install https://github.com/ideshun/octop-social-trigger/releases/do
 
 人工 @ 和 `/` 命令不参与普通消息的概率抽样，仍受屏蔽词、机器人身份识别、通道权限和宿主命令规则约束。默认 @ 不受自动回复间隔限制；关闭「被 @ 时不受回复间隔限制」后，已纳入且未关闭自动参与的群会用最近一次自动回复检查间隔。关闭插件或通道开关后，通道原有触发规则重新生效。
 
+通道提供 `has_mentions` 元数据时，只 @ 其他成员的消息不触发自动参与，也不进入插件近期上下文；同时 @ 本机器人时仍走正常回复路径。需配套更新 Gateway 或对应通道插件。普通文本中的“机器人”“AI”等称呼不能可靠表示对话对象，插件不会据此猜测 @ 目标。
+
 可在插件设置中打开「管理屏蔽词」：同一输入框可搜索现有词条，也可用逗号、分号分隔批量添加或粘贴词表；点击「添加」或按回车才会加入列表，单纯搜索后关闭不会新增词。支持删除和分页，编辑完成后点击插件的「保存设置」生效。插件和对应通道开关启用时，命中的普通群消息、@ 消息和命令会终止后续通道处理，不再退回原生回复路径，也不交给决策模型或专家；带入本轮的群聊临时历史也会过滤。词表按原有配置范围继承和覆盖，匹配忽略英文字母大小写并统一全角和半角。屏蔽不受试运行或决策模型是否可用影响；日志只记录命中，不记录词或消息。
 
 词表只检查传入的文本和附件名称，不识别图片、音视频或文件正文，也不清理此前保存在专家会话和记忆中的内容；它不是自动内容合规审核。需要避免历史内容再次进入模型时，应另行处理已有会话与记忆。启用屏蔽词需要包含入站过滤接口的配套 Gateway；旧接口不可用时，相关群消息会跳过并提示更新。
@@ -136,7 +138,7 @@ octop plugin install https://github.com/ideshun/octop-social-trigger/releases/do
 
 配置和状态使用 `$OCTOP_HOME/plugin-state/octop-social-trigger/`，无需另建数据库。日志记录决策原因和哈希去重键，不记录消息原文。消息只会在启用决策模型时发送到所配置的决策服务；宿主自身日志策略不由插件控制。
 
-v0.3.1 对符合接口契约的通道处理普通群文本。插件不会扩大平台授权范围、绕过平台限制或改变宿主命令鉴权。跨主机共享 SQLite、多进程间完整上下文合并和冷场主动发言不在支持范围内。完整设计见[设计文档](docs/octop-social-trigger-design%EF%BC%88Octop%20Social%20Trigger%20%C2%B7%20%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3%20v1.0%EF%BC%89.md)。
+v0.3.2 对符合接口契约的通道处理普通群文本，并在自动参与前过滤只 @ 他人的消息。插件不会扩大平台授权范围、绕过平台限制或改变宿主命令鉴权。跨主机共享 SQLite、多进程间完整上下文合并和冷场主动发言不在支持范围内。完整设计见[设计文档](docs/octop-social-trigger-design%EF%BC%88Octop%20Social%20Trigger%20%C2%B7%20%E8%AE%BE%E8%AE%A1%E6%96%87%E6%A1%A3%20v1.0%EF%BC%89.md)。
 
 ## 开发
 
