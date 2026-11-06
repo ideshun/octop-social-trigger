@@ -1,6 +1,6 @@
 # 兼容性与验证范围
 
-当前正式版为 0.3.2，支持符合接口契约的多通道群聊策略、群聊屏蔽词、回复输出过滤，并按通道提供的提及元数据拦截只 @ 他人的群消息。需要配套更新 Fork Octop、octop-gateway 和策略插件；接入 Octo 时还需更新 octop-channel-octo。Gateway 适配器必须提供 `bot_mentioned` 和 `has_mentions`，否则插件无法区分普通消息与只 @ 他人的消息。不能只上传策略 ZIP 后假定旧宿主具备多通道能力。
+当前正式版为 0.3.3，支持符合接口契约的多通道群聊策略、群聊屏蔽词、回复输出过滤，并按通道提供的提及元数据拦截只 @ 他人的群消息。需要配套更新 Fork Octop、octop-gateway 和策略插件；接入 Octo 时还需更新 octop-channel-octo。Gateway 适配器必须提供 `bot_mentioned` 和 `has_mentions`，否则插件无法区分普通消息与只 @ 他人的消息。不能只上传策略 ZIP 后假定旧宿主具备多通道能力。
 
 ## 新版所需接口
 

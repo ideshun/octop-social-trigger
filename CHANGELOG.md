@@ -1,8 +1,10 @@
+# 0.3.3 — 2026-11-06
+
+## 新增与修复
+
+- 将 QQ 引用消息正文和确认的机器人自身引用标记加入自动参与决策上下文，不改变参与概率与频率限制。
+
 # 0.3.2 — 2026-11-03
-
-## [Unreleased]
-
-- Include quoted text and confirmed reply-to-self identity in optional decision-model inputs.
 
 - Skip group messages addressed to other members before decision-model calls, passive context buffering, or expert dispatch.
 - Preserve native replies when the bot is explicitly mentioned; rely on normalized mention metadata supplied by the channel adapter.
