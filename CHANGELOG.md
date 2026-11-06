@@ -1,5 +1,9 @@
 # 0.3.2 — 2026-11-03
 
+## [Unreleased]
+
+- Include quoted text and confirmed reply-to-self identity in optional decision-model inputs.
+
 - Skip group messages addressed to other members before decision-model calls, passive context buffering, or expert dispatch.
 - Preserve native replies when the bot is explicitly mentioned; rely on normalized mention metadata supplied by the channel adapter.
 

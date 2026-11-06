@@ -78,7 +78,15 @@ class Runtime:
                     self._log("decision_model_budget")
                     return None
                 recent = [item.text[:500] for item in context[-5:]]
-                state = json.dumps({"近期群消息": recent, "当前消息": msg.text[:500]}, ensure_ascii=False)
+                state = json.dumps(
+                    {
+                        "近期群消息": recent,
+                        "当前消息": msg.text[:500],
+                        "引用本机器人": msg.isReplyToBot,
+                        "引用正文": msg.replyQuoteText[:500],
+                    },
+                    ensure_ascii=False,
+                )
                 answer = await scorer(
                     state=state,
                     statements=[
