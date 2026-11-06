@@ -36,11 +36,14 @@ class Message:
     visibilityGranted: str = "unknown"
     tenantId: str = ""
     hasMentions: bool = False
+    replyQuoteText: str = ""
 
     def __post_init__(self):
         for name in ("platform", "channelInstanceId", "groupId", "agentId", "senderId"):
             if not isinstance(getattr(self, name), str) or not getattr(self, name).strip():
                 raise ValueError(f"{name}: expected nonempty stable ID")
+        if not isinstance(self.replyQuoteText, str):
+            raise ValueError("replyQuoteText: expected string")
         if not isinstance(self.messageId, str) or not isinstance(self.tenantId, str) or not isinstance(self.text, str):
             raise ValueError("messageId, tenantId and text must be strings")
         if type(self.receivedAt) not in (float, int) or not 0 < self.receivedAt < 253402300800:
