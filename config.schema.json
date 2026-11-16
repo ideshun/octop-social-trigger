@@ -6,6 +6,74 @@
     "policy": {
       "type": "object",
       "properties": {
+        "prompts": {
+          "default": {
+            "contextHeader": "",
+            "automaticHeader": "",
+            "directHeader": "",
+            "automaticHintHeader": "",
+            "directHintHeader": "",
+            "quoteHeader": "",
+            "currentHeader": "",
+            "automaticHint": "",
+            "directHint": "",
+            "decisionPrompt": ""
+          },
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contextHeader": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[^\\r\\n\\u0000]*$"
+            },
+            "automaticHeader": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[^\\r\\n\\u0000]*$"
+            },
+            "directHeader": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[^\\r\\n\\u0000]*$"
+            },
+            "automaticHintHeader": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[^\\r\\n\\u0000]*$"
+            },
+            "directHintHeader": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[^\\r\\n\\u0000]*$"
+            },
+            "quoteHeader": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[^\\r\\n\\u0000]*$"
+            },
+            "currentHeader": {
+              "type": "string",
+              "maxLength": 200,
+              "pattern": "^[^\\r\\n\\u0000]*$"
+            },
+            "automaticHint": {
+              "type": "string",
+              "maxLength": 2000,
+              "pattern": "^[^\\u0000]*$"
+            },
+            "directHint": {
+              "type": "string",
+              "maxLength": 2000,
+              "pattern": "^[^\\u0000]*$"
+            },
+            "decisionPrompt": {
+              "type": "string",
+              "maxLength": 2000,
+              "pattern": "^[^\\u0000]*$"
+            }
+          }
+        },
         "blockedTerms": {
           "default": [],
           "type": "array",

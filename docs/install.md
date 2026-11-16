@@ -1,18 +1,20 @@
 # 安装、升级与灰度
 
-当前正式版为 0.3.3，需配套使用含入站策略接口及 `has_mentions` 元数据的 Octop 与 Gateway Fork；使用 Octo 通道时还需更新 `octop-channel-octo` 至 v1.1.0 或兼容版本。多通道能力及继承配置见[多通道设置](scoped-settings.md)。旧 host-patches 包不能升级到多通道能力。
+当前正式版为 0.4.0，需配套使用含入站策略接口及 `has_mentions` 元数据的 Octop 与 Gateway Fork；使用 Octo 通道时还需更新 `octop-channel-octo` 至 v1.1.0 或兼容版本。多通道能力及继承配置见[多通道设置](scoped-settings.md)。旧 host-patches 包不能升级到多通道能力。
 
 ## 宿主兼容要求
 
-完整功能需要 Octop Fork 提供分层设置接口、通道配置声明和可选决策模型注入；Gateway Fork 需要逐条入站策略和 `on_inbound_claimed` 收件箱交接。推荐使用 [ideshun/Octop 的 `develop`](https://github.com/ideshun/Octop/tree/develop) 与 [ideshun/octop-gateway 的 `develop`](https://github.com/ideshun/octop-gateway/tree/develop)。
+v0.4.0 要求 Harness `ctx.settings(provider)`、Octop `settings_ui` / 通用 settings API / 入站文本扩展、Gateway `text_filter_finish`。这些接口尚未进入公开 SDK 发行版；必须先部署兼容源码构建，详见[接口及固定源码参考](compatibility.md)。旧宿主请继续使用 v0.3.3。
+
+完整功能需要 Octop Fork 提供分层设置接口、通道配置声明和可选决策模型注入；Gateway Fork 需要逐条入站策略和 `on_inbound_claimed` 收件箱交接。还需支持下面兼容性文档列出的通用设置与文本扩展；不要仅按 develop 分支名判断。历史基线为 [ideshun/Octop 的 `develop`](https://github.com/ideshun/Octop/tree/develop) 与 [ideshun/octop-gateway 的 `develop`](https://github.com/ideshun/octop-gateway/tree/develop)。
 
 群聊静默输出保护需要支持 `InboundReceipt.text_filter`、`suppress_thinking` 与 `current_inbound_receipt` 的 Gateway。旧 Gateway 会跳过实际自动回复并记录 `output_guard_unavailable`；试运行仍记录决策，人工 @ 继续按旧通道路由处理。
 
 直接安装 ZIP 不会修改 Octop 宿主。腾讯上游及不含上述接口的旧版宿主不支持完整多通道功能；不要把历史补丁套到不匹配的源码版本。先检查[兼容性说明](compatibility.md)。
 
-## 安装 v0.3.3
+## 安装 v0.4.0
 
-固定版本的发布包：[`octop-social-trigger-0.3.3.zip`](https://github.com/ideshun/octop-social-trigger/releases/download/v0.3.3/octop-social-trigger-0.3.3.zip)，SHA-256 校验值见发布页提供的 `SHA256SUMS` 文件。
+固定版本的发布包：[`octop-social-trigger-0.4.0.zip`](https://github.com/ideshun/octop-social-trigger/releases/download/v0.4.0/octop-social-trigger-0.4.0.zip)，SHA-256 校验值见发布页提供的 `SHA256SUMS` 文件。
 
 **管理页面**：打开 **管理 → 插件 → 安装**，粘贴上面的 ZIP 下载地址，或先下载 ZIP 再上传。安装完成后启用「群聊自动参与」插件。
 
@@ -20,10 +22,10 @@
 
 ```sh
 # 首次安装
-octop plugin install https://github.com/ideshun/octop-social-trigger/releases/download/v0.3.3/octop-social-trigger-0.3.3.zip
+octop plugin install https://github.com/ideshun/octop-social-trigger/releases/download/v0.4.0/octop-social-trigger-0.4.0.zip
 
 # 覆盖已安装版本
-octop plugin install https://github.com/ideshun/octop-social-trigger/releases/download/v0.3.3/octop-social-trigger-0.3.3.zip --force
+octop plugin install https://github.com/ideshun/octop-social-trigger/releases/download/v0.4.0/octop-social-trigger-0.4.0.zip --force
 ```
 
 命令也可安装本地插件目录，但不接受本地 ZIP 文件路径。安装目录应在 Octop 服务使用的运行环境中操作。

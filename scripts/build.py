@@ -9,7 +9,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
-from social_trigger.config import DEFAULTS, MODES, RANGES, validate  # noqa: E402
+from social_trigger.config import DEFAULTS, MODES, PROMPT_KEYS, RANGES, validate  # noqa: E402
 
 VERSION = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]["version"]
 
@@ -18,7 +18,20 @@ def schema():
     properties = {}
     for key, value in DEFAULTS.items():
         item = {"default": value}
-        if key == "blockedTerms":
+        if key == "prompts":
+            item.update(
+                type="object",
+                additionalProperties=False,
+                properties={
+                    name: {
+                        "type": "string",
+                        "maxLength": 200 if name.endswith("Header") else 2000,
+                        "pattern": r"^[^\r\n\u0000]*$" if name.endswith("Header") else r"^[^\u0000]*$",
+                    }
+                    for name in PROMPT_KEYS
+                },
+            )
+        elif key == "blockedTerms":
             item.update(type="array", maxItems=5000, items={"type": "string", "minLength": 1, "maxLength": 100})
         elif key == "mode":
             item.update(type="string", enum=sorted(MODES))
@@ -121,6 +134,9 @@ def main():
     ]
     files += list((ROOT / "social_trigger").glob("*.py"))
     files += list((ROOT / "docs").glob("*.md"))
+    if not (ROOT / "ui/dist/settings.js").is_file():
+        raise SystemExit("Build the plugin settings UI first: cd ui && npm install && npm run build")
+    files += [path for path in (ROOT / "ui/dist").rglob("*") if path.is_file()]
     plugin = dist / f"octop-social-trigger-{VERSION}.zip"
     archive(plugin, files, "octop-social-trigger")
     (dist / "SHA256SUMS").write_text(hashlib.sha256(plugin.read_bytes()).hexdigest() + "  " + plugin.name + "\n")

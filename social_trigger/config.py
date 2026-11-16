@@ -8,7 +8,21 @@ import re
 from pathlib import Path
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+PROMPT_KEYS = (
+    "contextHeader",
+    "automaticHeader",
+    "directHeader",
+    "automaticHintHeader",
+    "directHintHeader",
+    "quoteHeader",
+    "currentHeader",
+    "automaticHint",
+    "directHint",
+    "decisionPrompt",
+)
+
 DEFAULTS = {
+    "prompts": dict.fromkeys(PROMPT_KEYS, ""),
     "blockedTerms": [],
     "mode": "smart",
     "visibilityRequired": "all",
@@ -124,7 +138,16 @@ def _policy(value, where):
     if extra:
         raise ValueError(f"{where}: unknown fields {sorted(extra)}")
     for key, val in value.items():
-        if key in RANGES:
+        if key == "prompts":
+            if not isinstance(val, dict) or val.keys() - set(PROMPT_KEYS):
+                raise ValueError(f"{where}.prompts: unknown prompt fields")
+            for name, text in val.items():
+                limit = 200 if name.endswith("Header") else 2000
+                if not isinstance(text, str) or len(text) > limit or "\x00" in text:
+                    raise ValueError(f"{where}.prompts.{name}: expected text up to {limit} characters")
+                if name.endswith("Header") and ("\n" in text or "\r" in text):
+                    raise ValueError(f"{where}.prompts.{name}: expected a single line")
+        elif key in RANGES:
             lo, hi = RANGES[key]
             expected = (
                 (int, float) if key in ("replyProbability", "smartScoreThreshold", "maxBotReplyRatio") else (int,)

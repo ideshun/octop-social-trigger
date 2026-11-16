@@ -1,7 +1,9 @@
 id: octop-social-trigger
-version: 0.3.3
+version: 0.4.0
 name: 群聊自动参与
 description: 根据聊天内容和回复频率设置，选择性回复多个通道的群聊普通消息，避免每条消息都回复。
 icon: "icon.png"
 kind: hook
 entry: main.py
+settings_ui:
+  entry: ui/dist/settings.js

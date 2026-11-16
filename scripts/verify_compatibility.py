@@ -33,6 +33,8 @@ from octop_harness.plugins.context import PluginContext
 assert callable(getattr(BaseChannel, "on_inbound_claimed", None))
 assert hasattr(BaseChannel, "plugin_group_settings")
 assert hasattr(PluginContext, "inbound")
+assert hasattr(PluginContext, "settings")
+assert hasattr(InboundReceipt, "text_filter_finish")
 """
         subprocess.run([sys.executable, "-c", contract], env=env, cwd=ROOT, check=True)
         subprocess.run(
@@ -47,7 +49,9 @@ from octop.infra.agents.plugins.manager import PluginManager
 from octop_harness.plugins.loader import unload_plugin
 mgr = PluginManager(plugins_dir=Path({temp!r}) / "plugins", config_path=Path({temp!r}) / "config.json")
 loaded = mgr.install_archive(Path("dist/octop-social-trigger-{VERSION}.zip"))
-assert loaded.inbound[0].settings_version == 2
+assert loaded.inbound[0].settings_version == 3
+assert loaded.settings is loaded.inbound[0]
+assert (loaded.source_path / "ui/dist/settings.js").is_file()
 assert not loaded.inbound[0].config["enabled"]
 assert loaded.inbound[0].config["dryRun"]
 assert loaded.inbound[0].config["allowGroups"] == []

@@ -7,3 +7,6 @@ __pycache__/
 .pytest_cache/
 .venv/
 dist/octop-social-trigger-host-patches/
+
+ui/node_modules/
+ui/*.tsbuildinfo

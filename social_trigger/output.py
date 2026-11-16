@@ -35,8 +35,12 @@ class GroupReplyFilter:
     def __init__(self, on_suppressed):
         self._pending = ""
         self._on_suppressed = on_suppressed
+        self._silent_tail = False
 
     def __call__(self, text: str) -> str:
+        if self._silent_tail and not text.strip("。.!！… \t\r\n"):
+            return ""
+        self._silent_tail = False
         candidate = self._pending + text
         value = _classification_text(candidate)
         upper = value.upper()
@@ -44,7 +48,7 @@ class GroupReplyFilter:
             value.startswith("(") and ")" not in value
         )
         unfinished_marker = bool(value) and any(
-            marker.startswith(upper) and marker != upper for marker in ("[NO_REPLY]", "<NO_REPLY>")
+            marker.startswith(upper) and marker != upper for marker in ("NO_REPLY", "[NO_REPLY]", "<NO_REPLY>")
         )
         if len(value) <= 512 and (unfinished_bracket or unfinished_marker):
             self._pending = candidate
@@ -52,5 +56,12 @@ class GroupReplyFilter:
         self._pending = ""
         filtered = filter_group_reply(candidate)
         if candidate and not filtered:
+            self._silent_tail = True
             self._on_suppressed()
         return filtered
+
+    def finish(self) -> str:
+        """Release non-marker text held until the end of a completed stream."""
+        pending, self._pending = self._pending, ""
+        self._silent_tail = False
+        return filter_group_reply(pending)

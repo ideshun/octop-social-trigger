@@ -93,6 +93,49 @@ def test_blocked_term_limit_allows_a_large_list():
         validate({"defaults": {"blockedTerms": [*terms, "one-more"]}})
 
 
+@pytest.mark.asyncio
+async def test_prompt_overrides_inherit_individually_and_reset(tmp_path):
+    runtime = Runtime(validate({"schemaVersion": 2}), tmp_path / "state.db", config_path=tmp_path / "config.json")
+    await runtime.update_settings(
+        scope="defaults", policy={"prompts": {"automaticHeader": "[auto]", "contextHeader": "[history]"}}
+    )
+    await runtime.update_settings(
+        platform="octo",
+        channel_id="bot",
+        group_id="group",
+        scope="groups",
+        policy={"prompts": {"automaticHeader": "[local]"}},
+    )
+    slot = runtime.config["groups"][instance_key("octo", "bot")]["group"]
+    assert slot == {"prompts": {"automaticHeader": "[local]"}}
+    policy = runtime.settings_for("bot", "group", platform="octo", scope="groups")["policy"]
+    assert policy["prompts"]["contextHeader"] == "[history]"
+    assert policy["prompts"]["automaticHeader"] == "[local]"
+    # Explicit empty text selects the built-in text despite a parent override.
+    await runtime.update_settings(
+        platform="octo", channel_id="bot", group_id="group", scope="groups", policy={"prompts": {"automaticHeader": ""}}
+    )
+    assert (
+        runtime.settings_for("bot", "group", platform="octo", scope="groups")["policy"]["prompts"]["automaticHeader"]
+        == ""
+    )
+    await runtime.update_settings(platform="octo", channel_id="bot", group_id="group", scope="groups", reset=True)
+    assert (
+        runtime.settings_for("bot", "group", platform="octo", scope="groups")["policy"]["prompts"]["automaticHeader"]
+        == "[auto]"
+    )
+    assert json.loads(runtime.config_path.read_text())["schemaVersion"] == 2
+    await runtime.wait_closed()
+
+
+@pytest.mark.parametrize(
+    "prompts", [{"typo": "x"}, {"automaticHeader": "x\ny"}, {"directHint": "x" * 2001}, {"contextHeader": 42}]
+)
+def test_invalid_scene_prompts_are_rejected(prompts):
+    with pytest.raises(ValueError, match="prompts"):
+        validate({"defaults": {"prompts": prompts}})
+
+
 def test_legacy_qq_policy_and_allowlist_migrate_without_enabling_other_platforms():
     config = validate({"enabled": True, "groups": {"same": {"same": {"cooldownSeconds": 12}}}})
     assert effective(config, "qq", "same", "same", "expert")[0]["cooldownSeconds"] == 12

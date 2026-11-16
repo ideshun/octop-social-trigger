@@ -8,6 +8,9 @@ def setup(ctx):
     register = getattr(ctx, "inbound", None)
     if not callable(register):
         raise RuntimeError("当前 Octop 缺少群消息接入接口，请先更新配套的 Octop Fork 基线，详见安装文档。")
+    settings = getattr(ctx, "settings", None)
+    if not callable(settings):
+        raise RuntimeError("当前宿主缺少通用插件设置接口，请先更新配套宿主与 SDK。")
     from octop_gateway.channel import InboundReceipt  # noqa: F401 — verify host contract at load time
     from octop_gateway.channel import BaseChannel
 
@@ -23,10 +26,10 @@ def setup(ctx):
     default_file = persistent if persistent.is_file() else ctx.source_path / "config.json"
     config_file = Path(os.environ.get("OCTOP_SOCIAL_TRIGGER_CONFIG", default_file))
     config = load(config_file)
-    register(
-        Runtime(
-            config,
-            home / "plugin-state" / "octop-social-trigger" / "state.db",
-            config_path=config_file if os.environ.get("OCTOP_SOCIAL_TRIGGER_CONFIG") else persistent,
-        )
+    runtime = Runtime(
+        config,
+        home / "plugin-state" / "octop-social-trigger" / "state.db",
+        config_path=config_file if os.environ.get("OCTOP_SOCIAL_TRIGGER_CONFIG") else persistent,
     )
+    register(runtime)
+    settings(runtime)

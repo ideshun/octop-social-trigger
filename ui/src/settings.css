@@ -1,0 +1,37 @@
+.social-trigger-settings .octop-form-item-extra,
+.social-trigger-settings .octop-form-item-explain,
+.social-trigger-settings .octop-alert-message,
+.social-trigger-settings .octop-alert-description {
+  font-size: 14px;
+  line-height: 1.6;
+}
+.social-trigger-description {
+  color: var(--fn-text-tertiary);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.social-trigger-scope .octop-form-item-label > label {
+  width: 100%;
+}
+.social-trigger-scope-header {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+}
+.social-trigger-prompt-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-block-end: 8px;
+}
+.social-trigger-prompt-header label {
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.social-trigger-prompt-reset {
+  flex-shrink: 0;
+  padding-inline: 0;
+}

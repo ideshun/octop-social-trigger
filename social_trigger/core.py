@@ -76,9 +76,11 @@ class Engine:
     def __init__(self, config, database, *, rng=None, clock=time.time):
         self.config, self.database = config, str(database)
         self.rng, self.clock = rng or random.Random(), clock
+        self._next_cleanup = 0.0
         with self._connect() as db:
             db.executescript("""
                 CREATE TABLE IF NOT EXISTS seen (scope TEXT NOT NULL, id TEXT NOT NULL, at REAL NOT NULL, PRIMARY KEY(scope,id));
+                CREATE INDEX IF NOT EXISTS seen_at ON seen(at);
                 CREATE TABLE IF NOT EXISTS replies (id TEXT PRIMARY KEY, scope TEXT NOT NULL, at REAL NOT NULL, status TEXT NOT NULL);
                 CREATE INDEX IF NOT EXISTS replies_scope ON replies(scope,at);
                 CREATE TABLE IF NOT EXISTS streak (scope TEXT PRIMARY KEY, count INTEGER NOT NULL, last_sent REAL NOT NULL);
@@ -123,12 +125,21 @@ class Engine:
         scope, native_id = self._identity(message)
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
-            db.execute("DELETE FROM seen WHERE at < ?", (self.clock() - 86400,))
+            self._maintain(db, self.clock())
             inserted = db.execute(
                 "INSERT OR IGNORE INTO seen VALUES (?,?,?)", (scope, "ingress:" + native_id, self.clock())
             ).rowcount
             db.commit()
             return inserted == 1
+
+    def _maintain(self, db, now):
+        if now < self._next_cleanup:
+            return
+        db.execute("DELETE FROM seen WHERE at < ?", (now - 86400,))
+        db.execute("DELETE FROM replies WHERE status='sent' AND at < ?", (now - 259200,))
+        day = datetime.fromtimestamp(now - 2592000, ZoneInfo(self.config["timezone"])).date().isoformat()
+        db.execute("DELETE FROM classifier_calls WHERE day < ?", (day,))
+        self._next_cleanup = now + 60
 
     def reserve_classifier_call(self, limit):
         if limit <= 0:
@@ -194,8 +205,7 @@ class Engine:
         with self._connect() as db:
             db.execute("BEGIN IMMEDIATE")
             if not preflight:
-                db.execute("DELETE FROM seen WHERE at < ?", (now - 86400,))
-                db.execute("DELETE FROM replies WHERE status='sent' AND at < ?", (now - 259200,))
+                self._maintain(db, now)
             if db.execute(
                 "SELECT 1 FROM seen WHERE scope=? AND id=? AND at>=?", (scope, native_id, now - 86400)
             ).fetchone():
@@ -216,7 +226,9 @@ class Engine:
                 db.commit()
                 return result("skip", "quiet_hours")
             rows = db.execute(
-                "SELECT at, status FROM replies WHERE scope=? AND status IN ('pending','sent','unknown')", (scope,)
+                "SELECT at, status FROM replies WHERE scope=? AND at>=? AND status IN ('sent','unknown') "
+                "UNION ALL SELECT at,status FROM replies WHERE scope=? AND status='pending'",
+                (scope, now - 172800, scope),
             ).fetchall()
             times = [row[0] for row in rows]
             if times and now - max(times) < p["cooldownSeconds"]:

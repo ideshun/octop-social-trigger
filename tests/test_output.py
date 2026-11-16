@@ -52,3 +52,19 @@ def test_group_reply_filter_holds_split_status_and_preserves_split_normal_reply(
     assert guard("[NO_") == ""
     assert guard("REPLY]") == ""
     assert suppressed == [True, True]
+
+
+def test_group_reply_filter_handles_bare_marker_and_trailing_punctuation():
+    guard = GroupReplyFilter(lambda: None)
+    assert guard("NO_") == ""
+    assert guard("REPLY") == ""
+    assert guard("。") == ""
+    assert guard("actual answer") == "actual answer"
+    assert guard.finish() == ""
+
+
+def test_group_reply_filter_releases_unclosed_normal_text_at_end():
+    guard = GroupReplyFilter(lambda: None)
+    assert guard("（推荐方案") == ""
+    assert guard.finish() == "（推荐方案"
+    assert guard.finish() == ""
