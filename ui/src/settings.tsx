@@ -155,13 +155,19 @@ export function createSettingsPanel(host: SettingsHost) {
     }
   }
 
+  const isZh = host.locale.startsWith("zh");
   const channelLabel = (kind: string) =>
     ({
       qq: "QQ",
       octo: "Octo",
       discord: "Discord",
-      feishu: "飞书 / Lark",
+      feishu: isZh ? "飞书 / Lark" : "Feishu / Lark",
       telegram: "Telegram",
+      slack: "Slack",
+      whatsapp: "WhatsApp",
+      dingtalk: isZh ? "钉钉" : "DingTalk",
+      wecom: isZh ? "企业微信" : "WeCom",
+      weixin: isZh ? "微信" : "WeChat",
     })[kind] || kind;
   const grid = {
     display: "grid",
