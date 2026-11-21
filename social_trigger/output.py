@@ -1,4 +1,4 @@
-"""Suppress explicit no-reply output in group responses."""
+"""Suppress explicit no-reply output and leaked tool/diagnostic traces in group responses."""
 
 import re
 
@@ -12,6 +12,163 @@ _STATUS = re.compile(
     r"|叫\s*[\w·-]{1,16})[。.!！…\s]*"
 )
 
+_TOOL_HEADER_RE = re.compile(
+    r"^[ \t]*(?:[-*>][ \t]+)?(?:\*\*|__|`)*"
+    r"(?:Tool[ \t]+(?:call|result|output)|Function[ \t]+call|工具(?:调用|结果|返回|输出))"
+    r"(?:\*\*|__|`)*[ \t]*[:：](?:\*\*|__|`)*",
+    re.IGNORECASE,
+)
+
+_TRACEBACK_HEADER_RE = re.compile(
+    r"^[ \t]*(?:\*\*|__|`)*Traceback[ \t]+\(most[ \t]+recent[ \t]+call[ \t]+last\)[ \t]*[:：]?(?:\*\*|__|`)*[ \t]*$",
+    re.IGNORECASE,
+)
+
+_STATUS_LINE_RE = re.compile(
+    r"^[ \t]*\[status:[ \t]*(?:ok|error|failed|success|[0-9]{3})\](?:[ \t]+.*)?$",
+    re.IGNORECASE,
+)
+
+_RAW_HTML_LINE_RE = re.compile(
+    r"^[ \t]*<(?:!doctype\b|/?(?:html|head|meta|body)\b)[^>]*>.*$",
+    re.IGNORECASE,
+)
+
+_DIAG_FENCE_LANG_RE = re.compile(
+    r"^(?:html|xml|traceback|tool|tool_call|tool_result|console)\b",
+    re.IGNORECASE,
+)
+
+_EXCEPTION_TAIL_RE = re.compile(
+    r"^[ \t]*[A-Za-z_][A-Za-z0-9_.]*(?:Error|Exception|Warning|Interrupt|Exit)(?:[ \t]*:.*)?$"
+)
+
+
+def _is_diagnostic_fence(lang: str, body: str, *, after_tool_header: bool) -> bool:
+    if after_tool_header:
+        return True
+    if _DIAG_FENCE_LANG_RE.match(lang.strip()):
+        return True
+    for raw_line in body.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+        if (
+            _STATUS_LINE_RE.match(line)
+            or _RAW_HTML_LINE_RE.match(line)
+            or _TRACEBACK_HEADER_RE.match(line)
+            or _TOOL_HEADER_RE.match(line)
+        ):
+            return True
+    return False
+
+
+def _is_raw_trace_line(line: str) -> bool:
+    return bool(_STATUS_LINE_RE.match(line) or _RAW_HTML_LINE_RE.match(line))
+
+
+def sanitize_group_reply(text: str) -> str:
+    """Strip fabricated tool traces, raw HTML/status dumps, and tracebacks while keeping prose and normal code blocks."""
+    if not text:
+        return ""
+    lines = text.splitlines()
+    out: list[str] = []
+    i = 0
+    n = len(lines)
+    after_tool_header = False
+
+    while i < n:
+        line = lines[i]
+        stripped = line.strip()
+
+        if not stripped:
+            out.append("")
+            i += 1
+            continue
+
+        # 1. Fenced code block: drop only when tied to a tool trace or containing raw HTML/status/traceback diagnostics.
+        if stripped.startswith("```"):
+            lang = stripped[3:].strip()
+            j = i + 1
+            body_lines: list[str] = []
+            while j < n and not lines[j].strip().startswith("```"):
+                body_lines.append(lines[j])
+                j += 1
+            body = "\n".join(body_lines)
+            if _is_diagnostic_fence(lang, body, after_tool_header=after_tool_header):
+                after_tool_header = False
+            else:
+                out.extend(lines[i : min(j + 1, n)])
+                after_tool_header = False
+            i = j + 1 if j < n else n
+            continue
+
+        # 2. Tool call / Tool result header paragraph.
+        if _TOOL_HEADER_RE.match(line):
+            after_tool_header = True
+            i += 1
+            while i < n:
+                cur = lines[i]
+                cur_stripped = cur.strip()
+                if not cur_stripped:
+                    i += 1
+                    break
+                if cur_stripped.startswith("```") or _TOOL_HEADER_RE.match(cur):
+                    break
+                if _is_raw_trace_line(cur) or cur[:1] in (" ", "\t") or cur_stripped.startswith(("{", "[", "`")):
+                    i += 1
+                    continue
+                break
+            continue
+
+        # 3. Python traceback block.
+        if _TRACEBACK_HEADER_RE.match(line):
+            after_tool_header = False
+            i += 1
+            while i < n:
+                cur = lines[i]
+                cur_stripped = cur.strip()
+                if not cur_stripped:
+                    i += 1
+                    break
+                if (
+                    cur[:1] in (" ", "\t")
+                    or cur_stripped.startswith(('File "', "During handling of", "The above exception"))
+                    or _EXCEPTION_TAIL_RE.match(cur)
+                ):
+                    i += 1
+                    continue
+                break
+            continue
+
+        # 4. Standalone raw status or HTML dump line.
+        if _is_raw_trace_line(line):
+            after_tool_header = False
+            i += 1
+            continue
+
+        after_tool_header = False
+        out.append(line)
+        i += 1
+
+    cleaned = re.sub(r"\n{3,}", "\n\n", "\n".join(out)).strip()
+    return cleaned
+
+
+def _has_unfinished_trace(text: str) -> bool:
+    """True when streaming text is mid-fence or mid-tool/traceback block."""
+    lines = text.splitlines()
+    fence_count = sum(1 for line in lines if line.strip().startswith("```"))
+    if fence_count % 2 == 1:
+        return True
+    tail = text.rsplit("\n\n", 1)[-1]
+    if not tail.strip():
+        return False
+    tail_lines = tail.splitlines()
+    if any(line.strip().startswith("```") for line in tail_lines):
+        return False
+    return any(_TOOL_HEADER_RE.match(line) or _TRACEBACK_HEADER_RE.match(line) for line in tail_lines)
+
 
 def _classification_text(text: str) -> str:
     value = text.strip().strip("`*_").strip()
@@ -19,18 +176,23 @@ def _classification_text(text: str) -> str:
 
 
 def filter_group_reply(text: str) -> str:
-    """Drop a no-reply marker or a standalone parenthesized status/action."""
-    value = _classification_text(text)
+    """Sanitize diagnostic leaks and drop a no-reply marker or standalone parenthesized status/action."""
+    if not text:
+        return ""
+    sanitized = sanitize_group_reply(text)
+    if not sanitized:
+        return ""
+    value = _classification_text(sanitized)
     if value.rstrip("。.!！… ").upper() in {"NO_REPLY", "[NO_REPLY]", "<NO_REPLY>"}:
         return ""
     if len(value) >= 2 and (value[0], value[-1]) in {("（", "）"), ("(", ")")}:
         if _STATUS.fullmatch(value[1:-1].strip()):
             return ""
-    return text
+    return sanitized if sanitized != text.strip() else text
 
 
 class GroupReplyFilter:
-    """Hold an unfinished marker across stream flushes within one reply."""
+    """Hold an unfinished marker or diagnostic block across stream flushes within one reply."""
 
     def __init__(self, on_suppressed):
         self._pending = ""
@@ -50,7 +212,9 @@ class GroupReplyFilter:
         unfinished_marker = bool(value) and any(
             marker.startswith(upper) and marker != upper for marker in ("NO_REPLY", "[NO_REPLY]", "<NO_REPLY>")
         )
-        if len(value) <= 512 and (unfinished_bracket or unfinished_marker):
+        if (len(value) <= 512 and (unfinished_bracket or unfinished_marker)) or (
+            len(candidate) <= 16384 and _has_unfinished_trace(candidate)
+        ):
             self._pending = candidate
             return ""
         self._pending = ""
@@ -64,4 +228,9 @@ class GroupReplyFilter:
         """Release non-marker text held until the end of a completed stream."""
         pending, self._pending = self._pending, ""
         self._silent_tail = False
-        return filter_group_reply(pending)
+        if not pending:
+            return ""
+        filtered = filter_group_reply(pending)
+        if not filtered:
+            self._on_suppressed()
+        return filtered

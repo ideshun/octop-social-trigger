@@ -91,7 +91,7 @@ class Integration(unittest.IsolatedAsyncioTestCase):
                 "group_openid": group,
                 "timestamp": time.time(),
                 "author": {"member_openid": "human", "bot": bot},
-                "content": content or ident,
+                "content": ident if content is None else content,
             },
         }
 
@@ -205,6 +205,77 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         self.send(manager, "normal-mention", mentioned=True)
         await wait_for(lambda: self.channel._send_text.await_count == 1)
         self.assertEqual(self.channel._send_text.await_args.args[1], "（推荐方案 A。）")
+
+    async def test_bare_no_reply_never_reaches_qq_for_native_or_automatic_turn(self):
+        async def process(message):
+            self.calls.append(message)
+            if message.text == "split-mention":
+                yield MessageEvent.delta("NO_")
+                yield MessageEvent.flush()
+                yield MessageEvent.delta("REPLY")
+            else:
+                yield MessageEvent.text("NO_REPLY")
+            yield MessageEvent.completed()
+
+        self.channel._processor = process
+        runtime, manager = await self.runtime()
+        self.send(manager, "ordinary-bare")
+        await wait_for(lambda: any(r["reasonCode"] == "silent_output" for r in runtime.recent))
+        await wait_for(lambda: not runtime._tasks)
+        for index, ident in enumerate(("bare-mention", "split-mention"), start=2):
+            self.send(manager, ident, mentioned=True)
+            await wait_for(lambda: sum(r["reasonCode"] == "silent_output" for r in runtime.recent) == index)
+        self.assertEqual(len(self.calls), 3)
+        self.channel._send_text.assert_not_awaited()
+
+    async def test_passive_image_persists_into_context_and_caption_image_can_trigger(self):
+        from octop_gateway.media import FileSystemMediaBackend
+        from octop_gateway.models import ImageContent
+
+        media_dir = Path(self.temp.name) / "media"
+        runtime, manager = await self.runtime()
+        self.channel.set_media_backend(FileSystemMediaBackend(media_dir))
+        self.channel.fetch_remote_media = AsyncMock(return_value=(b"\x89PNG\r\n\x1a\nfake", "image/png"))
+
+        # 1. Pure image message (non-@): persisted and buffered without triggering an immediate turn.
+        pure_img_event = self.event("pure-img", content="")
+        pure_img_event["d"]["attachments"] = [{"content_type": "image/png", "url": "https://cdn.qq.test/a.png"}]
+        manager.enqueue(self.channel.channel_id, pure_img_event)
+        await wait_for(lambda: any(r["reasonCode"] == "media_buffered" for r in runtime.recent))
+        self.assertEqual(self.calls, [])
+        self.channel.fetch_remote_media.assert_awaited_once()
+
+        # 2. Subsequent @mention sees the persisted image in group_context.
+        self.send(manager, "ask-about-img", mentioned=True, content="你看我发的图")
+        await wait_for(lambda: len(self.calls) == 1)
+        ctx_msgs = self.calls[0].group_context.messages
+        self.assertEqual(len(ctx_msgs), 1)
+        self.assertEqual(len(ctx_msgs[0].content), 1)
+        self.assertIsInstance(ctx_msgs[0].content[0], ImageContent)
+        self.assertTrue(ctx_msgs[0].content[0].local_path.startswith(f"qq/{self.channel.channel_id}/"))
+
+        # 3. Another pure image followed by an automatic-participation text turn also carries image content.
+        second_img_event = self.event("pure-img-2", content="")
+        second_img_event["d"]["attachments"] = [{"content_type": "image/png", "url": "https://cdn.qq.test/b.png"}]
+        manager.enqueue(self.channel.channel_id, second_img_event)
+        await wait_for(lambda: sum(r["reasonCode"] == "media_buffered" for r in runtime.recent) == 2)
+        self.send(manager, "auto-follow", content="这张图挺有意思")
+        await wait_for(lambda: len(self.calls) == 2 and not runtime._tasks)
+        auto_ctx_msgs = self.calls[1].group_context.messages
+        self.assertTrue(
+            any(
+                item.content and item.content[0].local_path.startswith(f"qq/{self.channel.channel_id}/")
+                for item in auto_ctx_msgs
+            )
+        )
+
+        # 4. Non-@ message with both text and image can trigger automatic participation directly.
+        caption_img_event = self.event("caption-img", content="看看这张带字的新图")
+        caption_img_event["d"]["attachments"] = [{"content_type": "image/png", "url": "https://cdn.qq.test/c.png"}]
+        manager.enqueue(self.channel.channel_id, caption_img_event)
+        await wait_for(lambda: len(self.calls) == 3 and not runtime._tasks)
+        self.assertEqual(self.calls[2].text, "看看这张带字的新图")
+        self.assertTrue(any(isinstance(part, ImageContent) and part.local_path for part in self.calls[2].content))
 
     async def test_older_gateway_without_output_guard_skips_automatic_turn(self):
         class LegacyReceipt:

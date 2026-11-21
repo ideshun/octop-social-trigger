@@ -475,7 +475,8 @@ class Runtime:
             msg = normalize(
                 inbound, agent_id=inbound.tenant_id, visibility_granted="all", sender_is_bot=meta["sender_is_bot"]
             )
-            if msg.isBotMessage or not msg.text.strip() or inbound.has_media:
+            has_text = bool(msg.text.strip())
+            if msg.isBotMessage or (not has_text and not inbound.has_media):
                 self._log("bot_or_non_text")
                 return True
             age = self.clock() - msg.receivedAt
@@ -488,6 +489,19 @@ class Runtime:
                     scopeHash=hashlib.sha256(scope.encode()).hexdigest()[:16],
                 )
                 return True
+            if not has_text and inbound.has_media and not msg.messageId:
+                from dataclasses import replace
+
+                media_sig = ",".join(
+                    str(getattr(part, "url", "") or getattr(part, "local_path", "") or getattr(part, "filename", ""))
+                    for part in inbound.content
+                )
+                msg = replace(
+                    msg,
+                    messageId=hashlib.sha256(
+                        f"{msg.senderId}\0{media_sig}\0{int(msg.receivedAt // 10)}".encode()
+                    ).hexdigest()[:16],
+                )
             lock = self._locks.setdefault(key, asyncio.Lock())
             async with lock:
                 engine = self._get_engine()
@@ -496,7 +510,7 @@ class Runtime:
                     return True
                 if self._closed:
                     return True
-                self._cancel(key, include_dispatch=False)
+                await self._persist_and_buffer_host_context(channel, inbound, host_policy)
                 items = self._buffers.setdefault(key, [])
                 items.append((msg, inbound.model_copy(deep=True)))
                 del items[: -max(1, p["contextMessages"])]
@@ -504,6 +518,10 @@ class Runtime:
                 if timer is not None:
                     timer.cancel()
                 self._expire(key, p["contextTtlSeconds"])
+                if not has_text:
+                    self._log("media_buffered")
+                    return True
+                self._cancel(key, include_dispatch=False)
                 task = asyncio.create_task(self._run(key, channel, dispatch, p))
                 self._tasks[key] = task
                 self._all_tasks.add(task)
@@ -513,6 +531,31 @@ class Runtime:
             self._clear(key)
             self._log("adapter_failed")
             return True
+
+    @staticmethod
+    async def _persist_and_buffer_host_context(channel, inbound, host_policy):
+        manager = getattr(channel, "group_context_manager", None)
+        if inbound.has_media and getattr(channel, "media_backend", None) is not None:
+            should_persist = getattr(manager, "should_persist_media", None)
+            persist = getattr(channel, "_persist_media", None)
+            if callable(persist) and (not callable(should_persist) or should_persist(inbound)):
+                await persist(inbound)
+        if manager is None or not getattr(host_policy, "enabled", False):
+            return
+        if (
+            getattr(host_policy, "visibility", None) == "mention_only"
+            or getattr(host_policy, "history", "recent") == "none"
+        ):
+            return
+        conv_fn = getattr(manager, "_conversation_id", None)
+        expire_fn = getattr(manager, "_expire", None)
+        append_fn = getattr(manager, "_append", None)
+        if callable(conv_fn) and callable(append_fn):
+            conversation_id = conv_fn(inbound)
+            if conversation_id:
+                if callable(expire_fn):
+                    expire_fn(conversation_id, host_policy, now=inbound.timestamp)
+                append_fn(conversation_id, inbound, host_policy)
 
     def _done(self, key, task):
         self._all_tasks.discard(task)
@@ -625,6 +668,8 @@ class Runtime:
                 return
             if self.clock() - msg.receivedAt >= p["contextTtlSeconds"]:
                 return
+            from octop_gateway.models import TextContent
+
             previous = [] if p["contextMessages"] == 0 else [(m, n) for m, n in items[:-1] if not retracted(n)]
             native.group_context = GroupContext(
                 conversation_id=msg.groupId,
@@ -637,7 +682,7 @@ class Runtime:
                         sender_name=str(n.metadata.get("sender_name") or ""),
                         text=self._context_text(m),
                         timestamp=m.receivedAt,
-                        content=[],
+                        content=[part.model_copy(deep=True) for part in n.content if not isinstance(part, TextContent)],
                     )
                     for m, n in previous
                 ],
@@ -646,6 +691,8 @@ class Runtime:
             current = asyncio.current_task()
             self._dispatches[key] = current
             await dispatch(native, activate=True, receipt=receipt)
+            if receipt.delivered:
+                channel.group_context_manager.mark_replied(native)
         except asyncio.CancelledError:
             raise
         except Exception:
