@@ -13,19 +13,19 @@ _STATUS = re.compile(
 )
 
 _TOOL_HEADER_RE = re.compile(
-    r"^[ \t]*(?:[-*>][ \t]+)?(?:\*\*|__|`)*"
-    r"(?:Tool[ \t]+(?:call|result|output)|Function[ \t]+call|工具(?:调用|结果|返回|输出))"
-    r"(?:\*\*|__|`)*[ \t]*[:：](?:\*\*|__|`)*",
+    r"^[ \t\u3000]*(?:[-*>][ \t\u3000]+)?(?:\*\*|__|`)*"
+    r"(?:Tool[ \t\u3000]+(?:call|result|output)s?|Function[ \t\u3000]+(?:call|result|output)s?|工具(?:调用|结果|返回|输出))"
+    r"(?:\*\*|__|`)*[ \t\u3000]*[:：](?:\*\*|__|`)*",
     re.IGNORECASE,
 )
 
 _TRACEBACK_HEADER_RE = re.compile(
-    r"^[ \t]*(?:\*\*|__|`)*Traceback[ \t]+\(most[ \t]+recent[ \t]+call[ \t]+last\)[ \t]*[:：]?(?:\*\*|__|`)*[ \t]*$",
+    r"^[ \t\u3000]*(?:\*\*|__|`)*Traceback[ \t\u3000]+\(most[ \t\u3000]+recent[ \t\u3000]+call[ \t\u3000]+last\)[ \t\u3000]*[:：]?(?:\*\*|__|`)*[ \t\u3000]*$",
     re.IGNORECASE,
 )
 
 _STATUS_LINE_RE = re.compile(
-    r"^[ \t]*\[status:[ \t]*(?:ok|error|failed|success|[0-9]{3})\](?:[ \t]+.*)?$",
+    r"^[ \t\u3000]*\[status:[ \t\u3000]*(?:ok|error|failed|success|[0-9]{3})\](?:[ \t\u3000]+.*)?$",
     re.IGNORECASE,
 )
 
@@ -161,6 +161,13 @@ def _has_unfinished_trace(text: str) -> bool:
     fence_count = sum(1 for line in lines if line.strip().startswith("```"))
     if fence_count % 2 == 1:
         return True
+    non_empty = [line for line in lines if line.strip()]
+    if non_empty:
+        last_line = non_empty[-1]
+        if (
+            _TOOL_HEADER_RE.match(last_line) and not _TOOL_HEADER_RE.sub("", last_line).strip()
+        ) or _TRACEBACK_HEADER_RE.match(last_line):
+            return True
     tail = text.rsplit("\n\n", 1)[-1]
     if not tail.strip():
         return False
@@ -194,10 +201,18 @@ def filter_group_reply(text: str) -> str:
 class GroupReplyFilter:
     """Hold an unfinished marker or diagnostic block across stream flushes within one reply."""
 
-    def __init__(self, on_suppressed):
+    def __init__(self, on_suppressed, on_sanitized=None):
         self._pending = ""
         self._on_suppressed = on_suppressed
+        self._on_sanitized = on_sanitized
         self._silent_tail = False
+
+    def _note_if_sanitized(self, raw: str, filtered: str) -> None:
+        if not filtered or self._on_sanitized is None:
+            return
+        normalized_raw = re.sub(r"\n{3,}", "\n\n", "\n".join(raw.splitlines())).strip()
+        if filtered.strip() != normalized_raw:
+            self._on_sanitized()
 
     def __call__(self, text: str) -> str:
         if self._silent_tail and not text.strip("。.!！… \t\r\n"):
@@ -222,6 +237,8 @@ class GroupReplyFilter:
         if candidate and not filtered:
             self._silent_tail = True
             self._on_suppressed()
+        else:
+            self._note_if_sanitized(candidate, filtered)
         return filtered
 
     def finish(self) -> str:
@@ -233,4 +250,6 @@ class GroupReplyFilter:
         filtered = filter_group_reply(pending)
         if not filtered:
             self._on_suppressed()
+        else:
+            self._note_if_sanitized(pending, filtered)
         return filtered

@@ -1,7 +1,19 @@
 """Native Octop entry. Refuse hosts without the explicit inbound-v1 contract."""
 
+import logging
 import os
 from pathlib import Path
+import sys
+
+logger = logging.getLogger("octop.plugins.social_trigger")
+
+
+def _purge_cached_submodules(package_name: str) -> None:
+    """Ensure ``POST /api/plugins/reload`` reloads every submodule from disk, not only ``main.py``."""
+    prefixes = (f"{package_name}.social_trigger", "social_trigger")
+    for mod_name in list(sys.modules):
+        if any(mod_name == prefix or mod_name.startswith(prefix + ".") for prefix in prefixes):
+            sys.modules.pop(mod_name, None)
 
 
 def setup(ctx):
@@ -18,6 +30,7 @@ def setup(ctx):
         BaseChannel, "plugin_group_settings"
     ):
         raise RuntimeError("当前 Gateway 缺少多通道入站交接接口，请更新配套的 Octop Fork 基线后重载插件。")
+    _purge_cached_submodules(__name__)
     from .social_trigger.config import load
     from .social_trigger.runtime import Runtime
 
@@ -33,3 +46,5 @@ def setup(ctx):
     )
     register(runtime)
     settings(runtime)
+    version = getattr(getattr(ctx, "manifest", None), "version", "unknown")
+    logger.info("loaded octop-social-trigger v%s (output_sanitizer=enabled)", version)

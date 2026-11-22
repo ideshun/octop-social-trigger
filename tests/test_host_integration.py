@@ -245,16 +245,19 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.calls, [])
         self.channel.fetch_remote_media.assert_awaited_once()
 
-        # 2. Subsequent @mention sees the persisted image in group_context.
+        # 2. Subsequent @mention promotes the persisted image into message.content for vision
+        # and replaces the background attachment with "[图片]" so no raw workspace path hint leaks.
         self.send(manager, "ask-about-img", mentioned=True, content="你看我发的图")
         await wait_for(lambda: len(self.calls) == 1)
         ctx_msgs = self.calls[0].group_context.messages
         self.assertEqual(len(ctx_msgs), 1)
-        self.assertEqual(len(ctx_msgs[0].content), 1)
-        self.assertIsInstance(ctx_msgs[0].content[0], ImageContent)
-        self.assertTrue(ctx_msgs[0].content[0].local_path.startswith(f"qq/{self.channel.channel_id}/"))
+        self.assertEqual(ctx_msgs[0].content, [])
+        self.assertEqual(ctx_msgs[0].text, "[图片]")
+        promoted_imgs = [part for part in self.calls[0].content if isinstance(part, ImageContent)]
+        self.assertEqual(len(promoted_imgs), 1)
+        self.assertTrue(promoted_imgs[0].local_path.startswith(f"qq/{self.channel.channel_id}/"))
 
-        # 3. Another pure image followed by an automatic-participation text turn also carries image content.
+        # 3. Another pure image followed by an automatic-participation text turn also promotes image to vision content.
         second_img_event = self.event("pure-img-2", content="")
         second_img_event["d"]["attachments"] = [{"content_type": "image/png", "url": "https://cdn.qq.test/b.png"}]
         manager.enqueue(self.channel.channel_id, second_img_event)
@@ -262,12 +265,9 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         self.send(manager, "auto-follow", content="这张图挺有意思")
         await wait_for(lambda: len(self.calls) == 2 and not runtime._tasks)
         auto_ctx_msgs = self.calls[1].group_context.messages
-        self.assertTrue(
-            any(
-                item.content and item.content[0].local_path.startswith(f"qq/{self.channel.channel_id}/")
-                for item in auto_ctx_msgs
-            )
-        )
+        self.assertTrue(any(item.text == "[图片]" and item.content == [] for item in auto_ctx_msgs))
+        auto_promoted = [part for part in self.calls[1].content if isinstance(part, ImageContent)]
+        self.assertTrue(any(part.local_path.startswith(f"qq/{self.channel.channel_id}/") for part in auto_promoted))
 
         # 4. Non-@ message with both text and image can trigger automatic participation directly.
         caption_img_event = self.event("caption-img", content="看看这张带字的新图")
@@ -276,6 +276,49 @@ class Integration(unittest.IsolatedAsyncioTestCase):
         await wait_for(lambda: len(self.calls) == 3 and not runtime._tasks)
         self.assertEqual(self.calls[2].text, "看看这张带字的新图")
         self.assertTrue(any(isinstance(part, ImageContent) and part.local_path for part in self.calls[2].content))
+
+    async def test_both_mention_and_automatic_paths_strip_fabricated_tool_trace_and_reload_submodules(self):
+        import sys
+        from octop_harness.plugins.loader import load_plugin_dir, unload_plugin
+
+        seq194 = (
+            "**Tool call**: read_file\u3000"
+            '`{"file_path": "/data/.octop/agents/whale/inbound/qq/01M6146QGK0F0C1WHMQPKZEXH8/1795318135_f84b36ab.jpg"}`\n\n'
+            "**Tool result**:\n"
+            "```\n"
+            "[status: ok]\n"
+            "```\n\n"
+            "看到图了，这是自然语言正文。"
+        )
+
+        async def process(message):
+            self.calls.append(message)
+            yield MessageEvent.delta(seq194)
+            yield MessageEvent.completed()
+
+        self.channel._processor = process
+        _, manager = await self.runtime()
+
+        # 1. Automatic participation turn strips the fabricated tool trace and sends only natural prose.
+        self.send(manager, "auto-trace", content="第一条自动触发")
+        await wait_for(lambda: self.channel._send_text.await_count == 1)
+        self.assertEqual(self.channel._send_text.await_args_list[-1].args[1], "看到图了，这是自然语言正文。")
+
+        # 2. Explicit @mention turn (including QQ non-command leading slash "/你看我发的图") also strips the trace.
+        self.send(manager, "mention-trace", mentioned=True, content="/你看我发的图")
+        await wait_for(lambda: self.channel._send_text.await_count == 2)
+        self.assertEqual(self.channel._send_text.await_args_list[-1].args[1], "看到图了，这是自然语言正文。")
+
+        # 3. Verify load_plugin_dir without unload_plugin (POST /api/plugins/reload) purges and reloads submodules.
+        plugin_root = Path(__file__).resolve().parents[1]
+        try:
+            load_plugin_dir(plugin_root, install_deps=False)
+            first_output_mod = sys.modules["harness_plugin_octop_social_trigger.social_trigger.output"]
+            load_plugin_dir(plugin_root, install_deps=False)
+            second_output_mod = sys.modules["harness_plugin_octop_social_trigger.social_trigger.output"]
+            self.assertIsNot(first_output_mod, second_output_mod)
+        finally:
+            unload_plugin("octop-social-trigger")
 
     async def test_older_gateway_without_output_guard_skips_automatic_turn(self):
         class LegacyReceipt:

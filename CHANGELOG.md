@@ -1,3 +1,9 @@
+# 0.4.2 — 2026-11-22
+
+- 插件入口 `setup(ctx)` 新增子模块缓存清理（`_purge_cached_submodules`），确保在线点击「重载」（`POST /api/plugins/reload`）时完整重载 `output.py`、`runtime.py`、`prompts.py` 等全部子模块，并输出 `output_sanitizer=enabled` 启动日志。
+- 群聊背景缓冲中的 `ImageContent` 在被 `@` 和自动参与两条路径中自动提升至当前消息 `message.content`（最多补齐 4 张视觉图），使宿主将其作为真实视觉 `image_url` 块送入多模态模型，同时将背景项中的图片替换为 `[图片]` 标记，消除暴露 `/data/.octop/...` 磁盘路径诱发模型伪造 `read_file` 工具调用的问题；默认提示词同步补充禁止调用或编造 `read_file`。
+- 使用宿主 `_is_octop_command` 精确识别内置命令，修复 QQ 群 `@bot /普通文字` 前导斜杠跳过 `_guard_native_reply()` 的问题；增强流式过滤器对裸 `**Tool result**:\n\n` 跨分片挂起与全角空格匹配，并新增 `diagnostic_trace_stripped` 净化日志。
+
 # 0.4.1 — 2026-11-21
 
 - 非 @ 群聊媒体消息支持落盘与双缓冲同步：纯媒体消息静默落盘并写入宿主 `group_context_manager` 与插件缓冲，供后续 @ 或自动参与引用；图文同发消息落盘缓冲后继续按文字参与策略评估触发，并在自动参与背景中透传非文本附件。

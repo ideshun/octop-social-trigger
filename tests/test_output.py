@@ -130,3 +130,42 @@ def test_group_reply_filter_holds_unfinished_tool_fence_across_chunks():
     assert guard('**Tool call**: web_fetch `{"url": "https://example.com"}`') == ""
     assert guard.finish() == ""
     assert suppressed == [True]
+
+
+def test_group_reply_filter_strips_read_file_trace_and_holds_across_blank_line_flushes():
+    seq194 = (
+        "**Tool call**: read_file\u3000"
+        '`{"file_path": "/data/.octop/agents/whale/inbound/qq/01M6146QGK0F0C1WHMQPKZEXH8/1795318135_f84b36ab.jpg"}`\n\n'
+        "**Tool result**:\n"
+        "```\n"
+        "[status: ok]\n"
+        "```\n\n"
+        "看到图了，但内容我看不太明白具体细节。你发的这个是想确认什么？用文字说说，我好接得上。"
+    )
+    suppressed = []
+    sanitized = []
+    guard = GroupReplyFilter(lambda: suppressed.append(True), on_sanitized=lambda: sanitized.append(True))
+    assert guard(seq194) == "看到图了，但内容我看不太明白具体细节。你发的这个是想确认什么？用文字说说，我好接得上。"
+    assert guard.finish() == ""
+    assert suppressed == []
+    assert sanitized == [True]
+
+    # Multi-flush where chunk 1 ends with a bare "**Tool result**:\n\n" before its fence & prose arrive.
+    suppressed.clear()
+    sanitized.clear()
+    assert (
+        guard(
+            "**Tool call**: read_file\u3000"
+            '`{"file_path": "/data/.octop/agents/whale/inbound/qq/01M6146QGK0F0C1WHMQPKZEXH8/1795320369_b85b53c7.jpg"}`\n\n'
+            "**Tool result**:\n\n"
+        )
+        == ""
+    )
+    assert suppressed == []
+    assert (
+        guard('```\n{"ok": true}\n```\n\n图我看到了，差别不大的话确实没必要给自己找麻烦。')
+        == "图我看到了，差别不大的话确实没必要给自己找麻烦。"
+    )
+    assert guard.finish() == ""
+    assert suppressed == []
+    assert sanitized == [True]

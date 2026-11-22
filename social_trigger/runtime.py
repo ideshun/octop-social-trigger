@@ -254,6 +254,88 @@ class Runtime:
         self.recent.append(record)
         logger.info("%s", json.dumps(record, separators=(",", ":")))
 
+    def _log_sanitized_output(self, **values):
+        record = {"event": "output_sanitized", "reasonCode": "diagnostic_trace_stripped", **values}
+        logger.info("%s", json.dumps(record, separators=(",", ":")))
+
+    @staticmethod
+    def _is_command(channel, text):
+        checker = getattr(getattr(channel, "group_context_manager", None), "_is_octop_command", None)
+        if callable(checker):
+            return bool(checker(text))
+        return text.lstrip().startswith("/")
+
+    @staticmethod
+    def _promote_context_images(message, *, max_vision_images=4):
+        """Promote buffered group-context images to current vision content and avoid raw path hints."""
+        context = getattr(message, "group_context", None)
+        messages = getattr(context, "messages", None)
+        if not messages:
+            return True
+        from octop_gateway.models import ImageContent
+
+        parts = list(getattr(message, "content", None) or [])
+        existing = [part for part in parts if isinstance(part, ImageContent)]
+        seen = {
+            part.local_path or part.url or part.data for part in existing if (part.local_path or part.url or part.data)
+        }
+        remaining = max(0, max_vision_images - len(existing))
+        candidates = []
+        for msg_idx, item in enumerate(messages):
+            for part_idx, part in enumerate(getattr(item, "content", None) or ()):
+                if isinstance(part, ImageContent) and (part.local_path or part.url or part.data):
+                    candidates.append((msg_idx, part_idx, part))
+        selected = set()
+        for msg_idx, part_idx, part in reversed(candidates):
+            if remaining <= 0:
+                break
+            sig = part.local_path or part.url or part.data
+            if sig and sig in seen:
+                continue
+            if sig:
+                seen.add(sig)
+            selected.add((msg_idx, part_idx))
+            remaining -= 1
+        promoted = []
+        updated_messages = list(messages)
+        changed_messages = False
+        for msg_idx, item in enumerate(messages):
+            item_parts = list(getattr(item, "content", None) or [])
+            if not any(isinstance(part, ImageContent) for part in item_parts):
+                continue
+            kept = []
+            for part_idx, part in enumerate(item_parts):
+                if isinstance(part, ImageContent):
+                    if (msg_idx, part_idx) in selected:
+                        promoted.append(part.model_copy(deep=True))
+                else:
+                    kept.append(part)
+            new_text = item.text or ""
+            if "[图片]" not in new_text:
+                new_text = f"{new_text} [图片]".strip() if new_text else "[图片]"
+            updated_messages[msg_idx] = item.model_copy(update={"content": kept, "text": new_text})
+            changed_messages = True
+        if changed_messages:
+            context.messages = updated_messages
+        if promoted:
+            message.content = [*parts, *promoted]
+        return True
+
+    def _attach_context_image_promoter(self, receipt):
+        if receipt is None or not hasattr(receipt, "input_filter"):
+            return
+        if getattr(receipt, "_social_trigger_image_promoter", False):
+            return
+        previous = receipt.input_filter
+
+        def promote(message):
+            if previous is not None and previous(message) is not True:
+                return False
+            return self._promote_context_images(message)
+
+        receipt.input_filter = promote
+        receipt._social_trigger_image_promoter = True
+
     def _guard_native_reply(self):
         try:
             from octop_gateway.channel import current_inbound_receipt
@@ -264,9 +346,13 @@ class Runtime:
         if receipt is None or not all(hasattr(receipt, name) for name in ("text_filter", "text_filter_finish")):
             self._log("output_guard_unavailable")
             return False
+        self._attach_context_image_promoter(receipt)
         if getattr(receipt, "_social_trigger_guard", False):
             return True
-        guard = GroupReplyFilter(lambda: self._log("silent_output"))
+        guard = GroupReplyFilter(
+            lambda: self._log("silent_output"),
+            on_sanitized=lambda: self._log_sanitized_output(mode="native"),
+        )
         previous = receipt.text_filter
         previous_finish = receipt.text_filter_finish
         if previous is None:
@@ -407,26 +493,22 @@ class Runtime:
             self._log("bot_message")
             return True
         allowed = group_allowed(self.config, inbound.channel_type, inbound.channel_id, key[-1])
+        is_command = self._is_command(channel, inbound.text)
         if type(meta.get("bot_mentioned")) is not bool:
             self._log("unsupported_channel")
-            return not inbound.text.lstrip().startswith("/")
+            return not is_command
         # Commands and mentions retain the host's authorization and routing.
-        if meta.get("bot_mentioned") is True or inbound.text.lstrip().startswith("/"):
+        if meta.get("bot_mentioned") is True or is_command:
             self._clear(key)
             if (
                 meta.get("bot_mentioned") is True
-                and not inbound.text.lstrip().startswith("/")
+                and not is_command
                 and callable(resolver)
                 and type(meta.get("sender_is_bot")) is not bool
             ):
                 self._log("sender_identity_unknown")
                 return True
-            if (
-                allowed
-                and not p["mentionBypassCooldown"]
-                and meta.get("bot_mentioned") is True
-                and not inbound.text.lstrip().startswith("/")
-            ):
+            if allowed and not p["mentionBypassCooldown"] and meta.get("bot_mentioned") is True and not is_command:
                 try:
                     msg = normalize(
                         inbound,
@@ -440,7 +522,7 @@ class Runtime:
                         return True
                 except Exception:
                     pass  # Mentions fail open to the host's existing permissions.
-            if meta.get("bot_mentioned") is True and not inbound.text.lstrip().startswith("/"):
+            if meta.get("bot_mentioned") is True and not is_command:
                 if self._guard_native_reply():
                     meta["social_trigger_output_guard"] = True
             return False
@@ -648,10 +730,20 @@ class Runtime:
                 suppressed_output = True
                 self._log("silent_output")
 
-            guard = GroupReplyFilter(note_suppressed)
+            guard = GroupReplyFilter(
+                note_suppressed,
+                on_sanitized=lambda: self._log_sanitized_output(
+                    mode="automatic",
+                    channelKind=msg.platform,
+                    channelId=msg.channelInstanceId,
+                    groupId=msg.groupId,
+                    agentId=msg.agentId,
+                ),
+            )
             receipt.text_filter = guard
             receipt.text_filter_finish = guard.finish
             receipt.suppress_thinking = True
+            self._attach_context_image_promoter(receipt)
             await asyncio.sleep(
                 min(decision.delayMs / 1000, max(0, p["contextTtlSeconds"] - (self.clock() - msg.receivedAt)))
             )
@@ -671,6 +763,7 @@ class Runtime:
             from octop_gateway.models import TextContent
 
             previous = [] if p["contextMessages"] == 0 else [(m, n) for m, n in items[:-1] if not retracted(n)]
+            native = native.model_copy(deep=True)
             native.group_context = GroupContext(
                 conversation_id=msg.groupId,
                 visibility="all",
@@ -687,6 +780,7 @@ class Runtime:
                     for m, n in previous
                 ],
             )
+            self._promote_context_images(native)
             native.metadata["social_trigger_auto"] = True
             current = asyncio.current_task()
             self._dispatches[key] = current
